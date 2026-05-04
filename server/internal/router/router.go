@@ -43,6 +43,7 @@ func SetupRouter(
 		userGroup.GET("/info", authHandler.GetUserInfo)
 		userGroup.PUT("/profile", authHandler.UpdateProfile)
 		userGroup.PUT("/password", authHandler.ChangePassword)
+		userGroup.PUT("/status", authHandler.SetCustomStatus)
 		userGroup.GET("/messages", chatHandler.GetUserHistoryMessages)
 	}
 
@@ -64,6 +65,7 @@ func SetupRouter(
 
 	// 用户状态查询（需要鉴权）
 	v1.GET("/users/:id/status", middleware.JWTAuth(), roomHandler.GetUserStatus)
+	v1.GET("/users/:id/online", middleware.JWTAuth(), authHandler.GetUserOnlineStatus)
 
 	// 播放列表相关（需要鉴权）
 	playlistGroup := v1.Group("/rooms/:id/playlist")

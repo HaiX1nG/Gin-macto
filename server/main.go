@@ -41,6 +41,7 @@ func main() {
 	// 初始化仓储
 	db := database.GetDB()
 	userRepo := repository.NewUserRepository(db)
+	userStatusRepo := repository.NewUserStatusRepository(db)
 	roomRepo := repository.NewRoomRepository(db)
 	participantRepo := repository.NewRoomParticipantRepository(db)
 	playlistRepo := repository.NewPlaylistRepository(db)
@@ -49,7 +50,7 @@ func main() {
 	voiceSessionRepo := repository.NewVoiceSessionRepository(db)
 
 	// 初始化服务
-	userService := service.NewUserService(userRepo)
+	userService := service.NewUserService(userRepo, userStatusRepo)
 	roomService := service.NewRoomService(roomRepo, participantRepo, userRepo)
 	playlistService := service.NewPlaylistService(playlistRepo, roomRepo, participantRepo)
 	chatService := service.NewChatService(chatMsgRepo, userRepo, participantRepo)
@@ -65,7 +66,7 @@ func main() {
 	voiceHandler := handler.NewVoiceHandler(voiceService)
 
 	// 初始化WebSocket Hub
-	hub := ws.NewHub()
+	hub := ws.NewHub(userService)
 	go hub.Run()
 	wsHandler := ws.NewHandler(hub)
 

@@ -15,12 +15,13 @@ import (
 
 // UserService 用户服务
 type UserService struct {
-	userRepo *repository.UserRepository
+	userRepo   *repository.UserRepository
+	statusRepo *repository.UserStatusRepository
 }
 
 // NewUserService 创建用户服务实例
-func NewUserService(userRepo *repository.UserRepository) *UserService {
-	return &UserService{userRepo: userRepo}
+func NewUserService(userRepo *repository.UserRepository, statusRepo *repository.UserStatusRepository) *UserService {
+	return &UserService{userRepo: userRepo, statusRepo: statusRepo}
 }
 
 // Register 用户注册
@@ -139,12 +140,23 @@ func (s *UserService) GetUserInfo(ctx context.Context, userID uint64) (*dto.User
 		return nil, errcode.ErrDBError.WithMessage("查询用户失败")
 	}
 
+	// 获取用户状态
+	status, err := s.statusRepo.FindByUserID(ctx, userID)
+	isOnline := false
+	customStatus := ""
+	if err == nil {
+		isOnline = status.IsOnline
+		customStatus = status.CustomStatus
+	}
+
 	return &dto.UserInfoResponse{
-		UserID:    user.ID,
-		Username:  user.Username,
-		Email:     user.Email,
-		AvatarURL: user.AvatarURL,
-		CreatedAt: user.CreatedAt.Format("2006-01-02 15:04:05"),
+		UserID:       user.ID,
+		Username:     user.Username,
+		Email:        user.Email,
+		AvatarURL:    user.AvatarURL,
+		IsOnline:     isOnline,
+		CustomStatus: customStatus,
+		CreatedAt:    user.CreatedAt.Format("2006-01-02 15:04:05"),
 	}, nil
 }
 
@@ -222,4 +234,93 @@ func (s *UserService) ChangePassword(ctx context.Context, userID uint64, req *dt
 	}
 
 	return nil
+}
+
+// SetOnline 设置用户在线
+func (s *UserService) SetOnline(ctx context.Context, userID uint64) error {
+	return s.statusRepo.SetOnline(ctx, userID)
+}
+
+// SetOffline 设置用户离线
+func (s *UserService) SetOffline(ctx context.Context, userID uint64) error {
+	return s.statusRepo.SetOffline(ctx, userID)
+}
+
+// SetCustomStatus 设置自定义状态
+func (s *UserService) SetCustomStatus(ctx context.Context, userID uint64, customStatus string) error {
+	return s.statusRepo.SetCustomStatus(ctx, userID, customStatus)
+}
+
+// GetUserOnlineStatus 获取用户在线状态
+func (s *UserService) GetUserOnlineStatus(ctx context.Context, userID uint64) (*dto.UserOnlineStatusResponse, error) {
+	user, err := s.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errcode.ErrUserNotFound
+		}
+		return nil, errcode.ErrDBError.WithMessage("查询用户失败")
+	}
+
+	status, err := s.statusRepo.FindByUserID(ctx, userID)
+	isOnline := false
+	customStatus := ""
+	lastSeenAt := ""
+	if err == nil {
+		isOnline = status.IsOnline
+		customStatus = status.CustomStatus
+		if status.LastSeenAt != nil {
+			lastSeenAt = status.LastSeenAt.Format("2006-01-02 15:04:05")
+		}
+	}
+
+	return &dto.UserOnlineStatusResponse{
+		UserID:       user.ID,
+		Username:     user.Username,
+		IsOnline:     isOnline,
+		CustomStatus: customStatus,
+		LastSeenAt:   lastSeenAt,
+	}, nil
+}
+
+// GetUsersOnlineStatus 批量获取用户在线状态
+func (s *UserService) GetUsersOnlineStatus(ctx context.Context, userIDs []uint64) ([]dto.UserOnlineStatusResponse, error) {
+	statuses, err := s.statusRepo.FindByUserIDs(ctx, userIDs)
+	if err != nil {
+		return nil, errcode.ErrDBError.WithMessage("查询用户状态失败")
+	}
+
+	// 构建状态映射
+	statusMap := make(map[uint64]*model.UserStatus)
+	for i := range statuses {
+		statusMap[statuses[i].UserID] = &statuses[i]
+	}
+
+	var responses []dto.UserOnlineStatusResponse
+	for _, userID := range userIDs {
+		user, err := s.userRepo.FindByID(ctx, userID)
+		if err != nil {
+			continue
+		}
+
+		isOnline := false
+		customStatus := ""
+		lastSeenAt := ""
+		if status, ok := statusMap[userID]; ok {
+			isOnline = status.IsOnline
+			customStatus = status.CustomStatus
+			if status.LastSeenAt != nil {
+				lastSeenAt = status.LastSeenAt.Format("2006-01-02 15:04:05")
+			}
+		}
+
+		responses = append(responses, dto.UserOnlineStatusResponse{
+			UserID:       user.ID,
+			Username:     user.Username,
+			IsOnline:     isOnline,
+			CustomStatus: customStatus,
+			LastSeenAt:   lastSeenAt,
+		})
+	}
+
+	return responses, nil
 }

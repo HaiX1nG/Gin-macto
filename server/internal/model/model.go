@@ -116,3 +116,19 @@ type VoiceSession struct {
 func (VoiceSession) TableName() string {
 	return "voice_sessions"
 }
+
+// UserStatus 用户在线状态表模型
+type UserStatus struct {
+	ID           uint64     `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	UserID       uint64     `gorm:"column:user_id;not null;uniqueIndex:uk_user" json:"userId"`
+	IsOnline     bool       `gorm:"column:is_online;type:tinyint(1);not null;default:0" json:"isOnline"`
+	CustomStatus string     `gorm:"column:custom_status;type:varchar(100);default:''" json:"customStatus"`
+	LastSeenAt   *time.Time `gorm:"column:last_seen_at" json:"lastSeenAt"`
+	CreatedAt    time.Time  `gorm:"column:created_at;autoCreateTime" json:"createdAt"`
+	UpdatedAt    time.Time  `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt"`
+}
+
+// TableName 返回表名
+func (UserStatus) TableName() string {
+	return "user_status"
+}

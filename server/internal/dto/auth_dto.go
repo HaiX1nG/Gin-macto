@@ -51,9 +51,25 @@ type ChangePasswordRequest struct {
 
 // UserInfoResponse 用户信息响应
 type UserInfoResponse struct {
-	UserID    uint64 `json:"userId"`
-	Username  string `json:"username"`
-	Email     string `json:"email"`
-	AvatarURL string `json:"avatarUrl"`
-	CreatedAt string `json:"createdAt"`
+	UserID       uint64 `json:"userId"`
+	Username     string `json:"username"`
+	Email        string `json:"email"`
+	AvatarURL    string `json:"avatarUrl"`
+	IsOnline     bool   `json:"isOnline"`
+	CustomStatus string `json:"customStatus"`
+	CreatedAt    string `json:"createdAt"`
+}
+
+// SetCustomStatusRequest 设置自定义状态请求
+type SetCustomStatusRequest struct {
+	CustomStatus string `json:"customStatus" binding:"omitempty,max=100"`
+}
+
+// UserOnlineStatusResponse 用户在线状态响应
+type UserOnlineStatusResponse struct {
+	UserID       uint64 `json:"userId"`
+	Username     string `json:"username"`
+	IsOnline     bool   `json:"isOnline"`
+	CustomStatus string `json:"customStatus"`
+	LastSeenAt   string `json:"lastSeenAt,omitempty"`
 }

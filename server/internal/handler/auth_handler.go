@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"strconv"
+
 	"github.com/gin-gonic/gin"
 	"github.com/yourorg/livemix/internal/dto"
 	"github.com/yourorg/livemix/internal/service"
@@ -119,4 +121,40 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	}
 
 	response.Success(c, nil)
+}
+
+// SetCustomStatus 设置自定义状态
+func (h *AuthHandler) SetCustomStatus(c *gin.Context) {
+	userID := c.GetUint64("userID")
+
+	var req dto.SetCustomStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(c, nil, "参数校验失败: "+err.Error())
+		return
+	}
+
+	if err := h.userService.SetCustomStatus(c.Request.Context(), userID, req.CustomStatus); err != nil {
+		response.Fail(c, err)
+		return
+	}
+
+	response.Success(c, nil)
+}
+
+// GetUserOnlineStatus 获取用户在线状态
+func (h *AuthHandler) GetUserOnlineStatus(c *gin.Context) {
+	userIDStr := c.Param("id")
+	userID, err := strconv.ParseUint(userIDStr, 10, 64)
+	if err != nil {
+		response.Fail(c, nil)
+		return
+	}
+
+	resp, err := h.userService.GetUserOnlineStatus(c.Request.Context(), userID)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+
+	response.Success(c, resp)
 }

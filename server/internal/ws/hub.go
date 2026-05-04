@@ -1,9 +1,12 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"time"
+
+	"github.com/yourorg/livemix/internal/service"
 )
 
 // EventType WebSocket事件类型
@@ -20,6 +23,8 @@ const (
 	EventWebRTCOffer        EventType = "webrtc_offer"
 	EventWebRTCAnswer       EventType = "webrtc_answer"
 	EventWebRTCIceCandidate EventType = "webrtc_ice_candidate"
+	EventUserOnline         EventType = "user_online"
+	EventUserOffline        EventType = "user_offline"
 )
 
 // Event WebSocket事件结构
@@ -42,12 +47,13 @@ type Client struct {
 
 // Hub WebSocket Hub，管理所有房间和连接
 type Hub struct {
-	rooms      map[uint64]*Room
-	clients    map[string]*Client
-	register   chan *Client
-	unregister chan *Client
-	broadcast  chan *BroadcastMessage
-	mu         sync.RWMutex
+	rooms       map[uint64]*Room
+	clients     map[string]*Client
+	register    chan *Client
+	unregister  chan *Client
+	broadcast   chan *BroadcastMessage
+	userService *service.UserService
+	mu          sync.RWMutex
 }
 
 // Room 房间
@@ -66,13 +72,14 @@ type BroadcastMessage struct {
 }
 
 // NewHub 创建Hub实例
-func NewHub() *Hub {
+func NewHub(userService *service.UserService) *Hub {
 	return &Hub{
-		rooms:      make(map[uint64]*Room),
-		clients:    make(map[string]*Client),
-		register:   make(chan *Client, 256),
-		unregister: make(chan *Client, 256),
-		broadcast:  make(chan *BroadcastMessage, 1024),
+		rooms:       make(map[uint64]*Room),
+		clients:     make(map[string]*Client),
+		register:    make(chan *Client, 256),
+		unregister:  make(chan *Client, 256),
+		broadcast:   make(chan *BroadcastMessage, 1024),
+		userService: userService,
 	}
 }
 
@@ -121,6 +128,11 @@ func (h *Hub) registerClient(client *Client) {
 	room.Clients[client.ID] = client
 	room.mu.Unlock()
 
+	// 设置用户在线状态
+	if h.userService != nil {
+		go h.userService.SetOnline(context.Background(), client.UserID)
+	}
+
 	// 广播用户加入事件
 	h.notifyParticipantUpdate(client.RoomID)
 }
@@ -131,8 +143,11 @@ func (h *Hub) unregisterClient(client *Client) {
 	defer h.mu.Unlock()
 
 	// 从全局列表移除
-	if _, exists := h.clients[client.ID]; exists {
-		delete(h.clients, client.ID)
+	delete(h.clients, client.ID)
+
+	// 设置用户离线状态
+	if h.userService != nil {
+		go h.userService.SetOffline(context.Background(), client.UserID)
 	}
 
 	// 从房间移除
