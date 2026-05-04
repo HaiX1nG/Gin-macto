@@ -1,0 +1,26 @@
+server:
+  port: 8080
+  read_timeout: 10s
+  write_timeout: 10s
+
+database:
+  host: 127.0.0.1
+  port: 3306
+  username: root
+  password: "123456"
+  database: livemix
+  max_idle_conns: 10
+  max_open_conns: 100
+
+redis:
+  host: 127.0.0.1
+  port: 6379
+  password: ""
+  db: 0
+
+jwt:
+  access_token_secret: "your-access-token-secret-key-change-in-production"
+  refresh_token_secret: "your-refresh-token-secret-key-change-in-production"
+  access_token_expire: 15m
+  refresh_token_expire: 168h
+  issuer: livemix

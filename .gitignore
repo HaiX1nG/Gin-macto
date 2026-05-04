@@ -1,0 +1,11 @@
+# Dependencies
+server/server
+
+# Config files with secrets
+server/config.yaml
+
+# IDE
+server/.idea/
+
+# OS
+.DS_Store
