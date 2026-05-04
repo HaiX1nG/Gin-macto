@@ -185,3 +185,22 @@ func (h *RoomHandler) GetUserStatus(c *gin.Context) {
 
 	response.Success(c, resp)
 }
+
+// DeleteRoom 删除房间（仅房主可操作）
+func (h *RoomHandler) DeleteRoom(c *gin.Context) {
+	userID := c.GetUint64("userID")
+
+	roomIDStr := c.Param("id")
+	roomID, err := strconv.ParseUint(roomIDStr, 10, 64)
+	if err != nil {
+		response.Fail(c, nil)
+		return
+	}
+
+	if err := h.roomService.DeleteRoom(c.Request.Context(), userID, roomID); err != nil {
+		response.Fail(c, err)
+		return
+	}
+
+	response.Success(c, nil)
+}

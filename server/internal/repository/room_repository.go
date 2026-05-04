@@ -196,3 +196,10 @@ func (r *RoomParticipantRepository) FindActiveByUserWithRoom(ctx context.Context
 		Scan(&results).Error
 	return results, err
 }
+
+// DeleteByRoom 删除房间内所有参与者记录
+func (r *RoomParticipantRepository) DeleteByRoom(ctx context.Context, roomID uint64) error {
+	return r.db.WithContext(ctx).
+		Where("room_id = ?", roomID).
+		Delete(&model.RoomParticipant{}).Error
+}

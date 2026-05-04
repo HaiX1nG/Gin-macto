@@ -350,3 +350,32 @@ func (s *RoomService) GetUserStatus(ctx context.Context, userID uint64) (*dto.Us
 		JoinedAt:        latest.JoinedAt.Format("2006-01-02 15:04:05"),
 	}, nil
 }
+
+// DeleteRoom 删除房间（仅房主可操作）
+func (s *RoomService) DeleteRoom(ctx context.Context, userID, roomID uint64) error {
+	// 查询房间
+	room, err := s.roomRepo.FindByID(ctx, roomID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errcode.ErrRoomNotFound
+		}
+		return errcode.ErrDBError.WithMessage("查询房间失败")
+	}
+
+	// 验证是否为房主
+	if room.HostUserID != userID {
+		return errcode.ErrForbidden.WithMessage("只有房主才能删除房间")
+	}
+
+	// 删除所有参与者记录
+	if err = s.participantRepo.DeleteByRoom(ctx, roomID); err != nil {
+		return errcode.ErrDBError.WithMessage("删除参与者记录失败")
+	}
+
+	// 删除房间
+	if err = s.roomRepo.Delete(ctx, roomID); err != nil {
+		return errcode.ErrDBError.WithMessage("删除房间失败")
+	}
+
+	return nil
+}

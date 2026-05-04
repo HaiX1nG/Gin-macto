@@ -61,6 +61,7 @@ func SetupRouter(
 		roomGroup.POST("", middleware.JWTAuth(), roomHandler.CreateRoom)
 		roomGroup.POST("/join/:id", middleware.JWTAuth(), roomHandler.JoinRoom)
 		roomGroup.POST("/leave/:id", middleware.JWTAuth(), roomHandler.LeaveRoom)
+		roomGroup.DELETE("/:id", middleware.JWTAuth(), roomHandler.DeleteRoom)
 	}
 
 	// 用户状态查询（需要鉴权）
