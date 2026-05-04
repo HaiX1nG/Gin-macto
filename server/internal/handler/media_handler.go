@@ -204,10 +204,36 @@ func (h *ChatHandler) GetMessages(c *gin.Context) {
 		return
 	}
 
-	resp, total, err := h.chatService.GetMessages(c.Request.Context(), roomID, userID, req.Page, req.PageSize)
+	resp, total, err := h.chatService.GetMessages(c.Request.Context(), roomID, userID, &req)
 	if err != nil {
 		response.Fail(c, err)
 		return
+	}
+
+	response.Page(c, resp, total, req.Page, req.PageSize)
+}
+
+// GetUserHistoryMessages 获取用户历史消息
+func (h *ChatHandler) GetUserHistoryMessages(c *gin.Context) {
+	userID := c.GetUint64("userID")
+
+	var req dto.UserHistoryMessagesRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.FailWithMessage(c, errcode.ErrInvalidParam, "参数校验失败: "+err.Error())
+		return
+	}
+
+	resp, total, err := h.chatService.GetUserHistoryMessages(c.Request.Context(), userID, req.Page, req.PageSize)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+
+	if req.Page == 0 {
+		req.Page = 1
+	}
+	if req.PageSize == 0 {
+		req.PageSize = 50
 	}
 
 	response.Page(c, resp, total, req.Page, req.PageSize)

@@ -134,3 +134,72 @@ func (r *ChatMessageRepository) FindRecentByRoom(ctx context.Context, roomID uin
 		Find(&messages).Error
 	return messages, err
 }
+
+// FindByRoomWithFilter 带筛选条件的查询房间消息列表
+func (r *ChatMessageRepository) FindByRoomWithFilter(ctx context.Context, roomID uint64, senderID uint64, messageType int8, startTime, endTime string, page, pageSize int) ([]model.ChatMessage, int64, error) {
+	var messages []model.ChatMessage
+	var total int64
+
+	query := r.db.WithContext(ctx).Model(&model.ChatMessage{}).Where("room_id = ?", roomID)
+
+	if senderID > 0 {
+		query = query.Where("sender_user_id = ?", senderID)
+	}
+	if messageType > 0 {
+		query = query.Where("message_type = ?", messageType)
+	}
+	if startTime != "" {
+		query = query.Where("created_at >= ?", startTime)
+	}
+	if endTime != "" {
+		query = query.Where("created_at <= ?", endTime)
+	}
+
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	offset := (page - 1) * pageSize
+	err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&messages).Error
+	return messages, total, err
+}
+
+// FindUserHistoryMessages 查询用户参与房间的历史消息
+func (r *ChatMessageRepository) FindUserHistoryMessages(ctx context.Context, userID uint64, page, pageSize int) ([]struct {
+	model.ChatMessage
+	RoomName string
+}, int64, error) {
+	var results []struct {
+		model.ChatMessage
+		RoomName string
+	}
+	var total int64
+
+	// 查询用户参与过的房间ID
+	subQuery := r.db.WithContext(ctx).
+		Model(&model.RoomParticipant{}).
+		Select("DISTINCT room_id").
+		Where("user_id = ?", userID)
+
+	// 统计总数
+	countQuery := r.db.WithContext(ctx).
+		Model(&model.ChatMessage{}).
+		Where("room_id IN (?)", subQuery)
+	if err := countQuery.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 查询消息
+	offset := (page - 1) * pageSize
+	err := r.db.WithContext(ctx).
+		Table("chat_messages").
+		Select("chat_messages.*, rooms.room_name").
+		Joins("LEFT JOIN rooms ON chat_messages.room_id = rooms.id").
+		Where("chat_messages.room_id IN (?)", subQuery).
+		Order("chat_messages.created_at DESC").
+		Offset(offset).
+		Limit(pageSize).
+		Scan(&results).Error
+
+	return results, total, err
+}

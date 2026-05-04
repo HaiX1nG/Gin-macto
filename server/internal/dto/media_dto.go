@@ -44,6 +44,28 @@ type MessageResponse struct {
 
 // MessageListRequest 消息列表请求
 type MessageListRequest struct {
+	Page        int    `form:"page" binding:"omitempty,min=1"`
+	PageSize    int    `form:"pageSize" binding:"omitempty,min=1,max=100"`
+	MessageType int8   `form:"messageType" binding:"omitempty,min=1,max=3"`
+	SenderID    uint64 `form:"senderId"`
+	StartTime   string `form:"startTime"` // 格式: 2006-01-02 15:04:05
+	EndTime     string `form:"endTime"`   // 格式: 2006-01-02 15:04:05
+}
+
+// UserHistoryMessagesRequest 用户历史消息请求
+type UserHistoryMessagesRequest struct {
 	Page     int `form:"page" binding:"omitempty,min=1"`
 	PageSize int `form:"pageSize" binding:"omitempty,min=1,max=100"`
+}
+
+// UserHistoryMessageResponse 用户历史消息响应
+type UserHistoryMessageResponse struct {
+	ID           uint64 `json:"id"`
+	RoomID       uint64 `json:"roomId"`
+	RoomName     string `json:"roomName"`
+	SenderUserID uint64 `json:"senderUserId"`
+	SenderName   string `json:"senderName"`
+	MessageType  int8   `json:"messageType"`
+	Content      string `json:"content"`
+	CreatedAt    string `json:"createdAt"`
 }

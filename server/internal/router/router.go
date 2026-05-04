@@ -43,6 +43,7 @@ func SetupRouter(
 		userGroup.GET("/info", authHandler.GetUserInfo)
 		userGroup.PUT("/profile", authHandler.UpdateProfile)
 		userGroup.PUT("/password", authHandler.ChangePassword)
+		userGroup.GET("/messages", chatHandler.GetUserHistoryMessages)
 	}
 
 	// 房间相关

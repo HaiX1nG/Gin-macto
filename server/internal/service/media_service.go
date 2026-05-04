@@ -292,7 +292,7 @@ func (s *ChatService) SendMessage(ctx context.Context, roomID, userID uint64, re
 }
 
 // GetMessages 获取消息列表
-func (s *ChatService) GetMessages(ctx context.Context, roomID, userID uint64, page, pageSize int) ([]dto.MessageResponse, int64, error) {
+func (s *ChatService) GetMessages(ctx context.Context, roomID, userID uint64, req *dto.MessageListRequest) ([]dto.MessageResponse, int64, error) {
 	// 检查用户是否在房间中
 	inRoom, err := s.participantRepo.ExistsActive(ctx, roomID, userID)
 	if err != nil {
@@ -302,14 +302,14 @@ func (s *ChatService) GetMessages(ctx context.Context, roomID, userID uint64, pa
 		return nil, 0, errcode.ErrNotInRoom
 	}
 
-	if page == 0 {
-		page = 1
+	if req.Page == 0 {
+		req.Page = 1
 	}
-	if pageSize == 0 {
-		pageSize = 50
+	if req.PageSize == 0 {
+		req.PageSize = 50
 	}
 
-	messages, total, err := s.msgRepo.FindByRoom(ctx, roomID, page, pageSize)
+	messages, total, err := s.msgRepo.FindByRoomWithFilter(ctx, roomID, req.SenderID, req.MessageType, req.StartTime, req.EndTime, req.Page, req.PageSize)
 	if err != nil {
 		return nil, 0, errcode.ErrDBError.WithMessage("查询消息失败")
 	}
@@ -330,6 +330,48 @@ func (s *ChatService) GetMessages(ctx context.Context, roomID, userID uint64, pa
 		responses = append(responses, dto.MessageResponse{
 			ID:           msg.ID,
 			RoomID:       msg.RoomID,
+			SenderUserID: msg.SenderUserID,
+			SenderName:   userMap[msg.SenderUserID],
+			MessageType:  msg.MessageType,
+			Content:      msg.Content,
+			CreatedAt:    msg.CreatedAt.Format("2006-01-02 15:04:05"),
+		})
+	}
+
+	return responses, total, nil
+}
+
+// GetUserHistoryMessages 获取用户历史消息
+func (s *ChatService) GetUserHistoryMessages(ctx context.Context, userID uint64, page, pageSize int) ([]dto.UserHistoryMessageResponse, int64, error) {
+	if page == 0 {
+		page = 1
+	}
+	if pageSize == 0 {
+		pageSize = 50
+	}
+
+	messages, total, err := s.msgRepo.FindUserHistoryMessages(ctx, userID, page, pageSize)
+	if err != nil {
+		return nil, 0, errcode.ErrDBError.WithMessage("查询历史消息失败")
+	}
+
+	// 获取所有发送者ID
+	userMap := make(map[uint64]string)
+	for _, msg := range messages {
+		if _, ok := userMap[msg.SenderUserID]; !ok {
+			user, err := s.userRepo.FindByID(ctx, msg.SenderUserID)
+			if err == nil {
+				userMap[msg.SenderUserID] = user.Username
+			}
+		}
+	}
+
+	var responses []dto.UserHistoryMessageResponse
+	for _, msg := range messages {
+		responses = append(responses, dto.UserHistoryMessageResponse{
+			ID:           msg.ID,
+			RoomID:       msg.RoomID,
+			RoomName:     msg.RoomName,
 			SenderUserID: msg.SenderUserID,
 			SenderName:   userMap[msg.SenderUserID],
 			MessageType:  msg.MessageType,
