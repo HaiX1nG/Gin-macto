@@ -44,3 +44,35 @@ type RoomListRequest struct {
 	PageSize int  `form:"pageSize" binding:"omitempty,min=1,max=50"`
 	RoomType int8 `form:"roomType" binding:"omitempty,min=1,max=4"`
 }
+
+// OnlineCountResponse 房间在线人数响应
+type OnlineCountResponse struct {
+	RoomID      uint64 `json:"roomId"`
+	OnlineCount int    `json:"onlineCount"`
+}
+
+// OnlineUserResponse 在线用户响应
+type OnlineUserResponse struct {
+	UserID          uint64 `json:"userId"`
+	Username        string `json:"username"`
+	AvatarURL       string `json:"avatarUrl"`
+	Role            int8   `json:"role"`
+	IsMuted         bool   `json:"isMuted"`
+	IsScreenSharing bool   `json:"isScreenSharing"`
+	IsVoiceActive   bool   `json:"isVoiceActive"`
+	JoinedAt        string `json:"joinedAt"`
+}
+
+// UserStatusResponse 用户状态响应
+type UserStatusResponse struct {
+	UserID          uint64 `json:"userId"`
+	Username        string `json:"username"`
+	RoomID          uint64 `json:"roomId,omitempty"`
+	RoomName        string `json:"roomName,omitempty"`
+	IsOnline        bool   `json:"isOnline"`
+	Role            int8   `json:"role,omitempty"`
+	IsMuted         bool   `json:"isMuted,omitempty"`
+	IsScreenSharing bool   `json:"isScreenSharing,omitempty"`
+	IsVoiceActive   bool   `json:"isVoiceActive,omitempty"`
+	JoinedAt        string `json:"joinedAt,omitempty"`
+}

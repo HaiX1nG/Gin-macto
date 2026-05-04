@@ -168,3 +168,31 @@ func (r *RoomParticipantRepository) ExistsActive(ctx context.Context, roomID, us
 		Count(&count).Error
 	return count > 0, err
 }
+
+// FindActiveByUser 查询用户当前活跃的房间参与记录
+func (r *RoomParticipantRepository) FindActiveByUser(ctx context.Context, userID uint64) ([]model.RoomParticipant, error) {
+	var participants []model.RoomParticipant
+	err := r.db.WithContext(ctx).
+		Where("user_id = ? AND is_active = ?", userID, true).
+		Order("joined_at DESC").
+		Find(&participants).Error
+	return participants, err
+}
+
+// FindActiveByUserWithRoom 查询用户当前活跃的房间参与记录（含房间信息）
+func (r *RoomParticipantRepository) FindActiveByUserWithRoom(ctx context.Context, userID uint64) ([]struct {
+	model.RoomParticipant
+	Room model.Room
+}, error) {
+	var results []struct {
+		model.RoomParticipant
+		Room model.Room
+	}
+	err := r.db.WithContext(ctx).
+		Table("room_participants").
+		Select("room_participants.*, rooms.*").
+		Joins("LEFT JOIN rooms ON room_participants.room_id = rooms.id").
+		Where("room_participants.user_id = ? AND room_participants.is_active = ?", userID, true).
+		Scan(&results).Error
+	return results, err
+}

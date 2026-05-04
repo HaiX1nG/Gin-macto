@@ -246,3 +246,107 @@ func (s *RoomService) buildRoomInfoResponse(ctx context.Context, room *model.Roo
 		CreatedAt:             room.CreatedAt.Format("2006-01-02 15:04:05"),
 	}, nil
 }
+
+// GetOnlineCount 获取房间在线人数
+func (s *RoomService) GetOnlineCount(ctx context.Context, roomID uint64) (*dto.OnlineCountResponse, error) {
+	// 检查房间是否存在
+	_, err := s.roomRepo.FindByID(ctx, roomID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errcode.ErrRoomNotFound
+		}
+		return nil, errcode.ErrDBError.WithMessage("查询房间失败")
+	}
+
+	// 统计在线人数
+	count, err := s.participantRepo.CountActiveByRoom(ctx, roomID)
+	if err != nil {
+		return nil, errcode.ErrDBError.WithMessage("统计在线人数失败")
+	}
+
+	return &dto.OnlineCountResponse{
+		RoomID:      roomID,
+		OnlineCount: count,
+	}, nil
+}
+
+// GetOnlineUsers 获取房间在线用户列表
+func (s *RoomService) GetOnlineUsers(ctx context.Context, roomID uint64) ([]dto.OnlineUserResponse, error) {
+	// 检查房间是否存在
+	_, err := s.roomRepo.FindByID(ctx, roomID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errcode.ErrRoomNotFound
+		}
+		return nil, errcode.ErrDBError.WithMessage("查询房间失败")
+	}
+
+	// 查询活跃参与者
+	participants, err := s.participantRepo.FindActiveByRoom(ctx, roomID)
+	if err != nil {
+		return nil, errcode.ErrDBError.WithMessage("查询参与者失败")
+	}
+
+	var responses []dto.OnlineUserResponse
+	for _, p := range participants {
+		user, err := s.userRepo.FindByID(ctx, p.UserID)
+		if err != nil {
+			continue
+		}
+
+		responses = append(responses, dto.OnlineUserResponse{
+			UserID:          p.UserID,
+			Username:        user.Username,
+			AvatarURL:       user.AvatarURL,
+			Role:            p.Role,
+			IsMuted:         p.IsMuted,
+			IsScreenSharing: p.IsScreenSharing,
+			IsVoiceActive:   !p.IsMuted, // 根据静音状态推断语音活跃
+			JoinedAt:        p.JoinedAt.Format("2006-01-02 15:04:05"),
+		})
+	}
+
+	return responses, nil
+}
+
+// GetUserStatus 获取用户状态
+func (s *RoomService) GetUserStatus(ctx context.Context, userID uint64) (*dto.UserStatusResponse, error) {
+	// 查询用户信息
+	user, err := s.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errcode.ErrUserNotFound
+		}
+		return nil, errcode.ErrDBError.WithMessage("查询用户失败")
+	}
+
+	// 查询用户当前活跃的房间参与记录
+	participants, err := s.participantRepo.FindActiveByUserWithRoom(ctx, userID)
+	if err != nil {
+		return nil, errcode.ErrDBError.WithMessage("查询用户房间状态失败")
+	}
+
+	// 用户不在线（未加入任何房间）
+	if len(participants) == 0 {
+		return &dto.UserStatusResponse{
+			UserID:   userID,
+			Username: user.Username,
+			IsOnline: false,
+		}, nil
+	}
+
+	// 取最新的房间参与记录
+	latest := participants[0]
+	return &dto.UserStatusResponse{
+		UserID:          userID,
+		Username:        user.Username,
+		RoomID:          latest.RoomID,
+		RoomName:        latest.Room.RoomName,
+		IsOnline:        true,
+		Role:            latest.Role,
+		IsMuted:         latest.IsMuted,
+		IsScreenSharing: latest.IsScreenSharing,
+		IsVoiceActive:   !latest.IsMuted,
+		JoinedAt:        latest.JoinedAt.Format("2006-01-02 15:04:05"),
+	}, nil
+}

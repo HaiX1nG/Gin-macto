@@ -131,3 +131,57 @@ func (h *RoomHandler) GetRoomParticipants(c *gin.Context) {
 
 	response.Success(c, resp)
 }
+
+// GetOnlineCount 获取房间在线人数
+func (h *RoomHandler) GetOnlineCount(c *gin.Context) {
+	roomIDStr := c.Param("id")
+	roomID, err := strconv.ParseUint(roomIDStr, 10, 64)
+	if err != nil {
+		response.Fail(c, nil)
+		return
+	}
+
+	resp, err := h.roomService.GetOnlineCount(c.Request.Context(), roomID)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+
+	response.Success(c, resp)
+}
+
+// GetOnlineUsers 获取房间在线用户列表
+func (h *RoomHandler) GetOnlineUsers(c *gin.Context) {
+	roomIDStr := c.Param("id")
+	roomID, err := strconv.ParseUint(roomIDStr, 10, 64)
+	if err != nil {
+		response.Fail(c, nil)
+		return
+	}
+
+	resp, err := h.roomService.GetOnlineUsers(c.Request.Context(), roomID)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+
+	response.Success(c, resp)
+}
+
+// GetUserStatus 获取用户状态
+func (h *RoomHandler) GetUserStatus(c *gin.Context) {
+	userIDStr := c.Param("id")
+	userID, err := strconv.ParseUint(userIDStr, 10, 64)
+	if err != nil {
+		response.Fail(c, nil)
+		return
+	}
+
+	resp, err := h.roomService.GetUserStatus(c.Request.Context(), userID)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+
+	response.Success(c, resp)
+}

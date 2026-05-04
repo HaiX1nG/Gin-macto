@@ -52,12 +52,17 @@ func SetupRouter(
 		roomGroup.GET("", roomHandler.GetRoomList)
 		roomGroup.GET("/:id", roomHandler.GetRoomInfo)
 		roomGroup.GET("/:id/participants", roomHandler.GetRoomParticipants)
+		roomGroup.GET("/:id/online/count", roomHandler.GetOnlineCount)
+		roomGroup.GET("/:id/online/users", roomHandler.GetOnlineUsers)
 
 		// 需要鉴权
 		roomGroup.POST("", middleware.JWTAuth(), roomHandler.CreateRoom)
 		roomGroup.POST("/join/:id", middleware.JWTAuth(), roomHandler.JoinRoom)
 		roomGroup.POST("/leave/:id", middleware.JWTAuth(), roomHandler.LeaveRoom)
 	}
+
+	// 用户状态查询（需要鉴权）
+	v1.GET("/users/:id/status", middleware.JWTAuth(), roomHandler.GetUserStatus)
 
 	// 播放列表相关（需要鉴权）
 	playlistGroup := v1.Group("/rooms/:id/playlist")
