@@ -24,8 +24,8 @@ const (
 
 // Event WebSocket事件结构
 type Event struct {
-	Event EventType     `json:"event"`
-	Data  interface{}   `json:"data"`
+	Event EventType   `json:"event"`
+	Data  interface{} `json:"data"`
 }
 
 // Client WebSocket客户端
@@ -42,19 +42,19 @@ type Client struct {
 
 // Hub WebSocket Hub，管理所有房间和连接
 type Hub struct {
-	rooms    map[uint64]*Room
-	clients  map[string]*Client
-	register chan *Client
+	rooms      map[uint64]*Room
+	clients    map[string]*Client
+	register   chan *Client
 	unregister chan *Client
-	broadcast chan *BroadcastMessage
-	mu        sync.RWMutex
+	broadcast  chan *BroadcastMessage
+	mu         sync.RWMutex
 }
 
 // Room 房间
 type Room struct {
-	ID       uint64
-	Clients  map[string]*Client
-	mu       sync.RWMutex
+	ID      uint64
+	Clients map[string]*Client
+	mu      sync.RWMutex
 }
 
 // BroadcastMessage 广播消息
@@ -68,11 +68,11 @@ type BroadcastMessage struct {
 // NewHub 创建Hub实例
 func NewHub() *Hub {
 	return &Hub{
-		rooms:     make(map[uint64]*Room),
-		clients:   make(map[string]*Client),
-		register:  make(chan *Client, 256),
+		rooms:      make(map[uint64]*Room),
+		clients:    make(map[string]*Client),
+		register:   make(chan *Client, 256),
 		unregister: make(chan *Client, 256),
-		broadcast: make(chan *BroadcastMessage, 1024),
+		broadcast:  make(chan *BroadcastMessage, 1024),
 	}
 }
 

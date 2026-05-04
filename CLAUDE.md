@@ -189,3 +189,34 @@ Server uses Hub pattern for room connections, auth on connect, heartbeat every 1
 - Config files (config.yaml) must not be in version control - use `.gitignore`, provide `config.example.yaml`
 - Secrets/DB passwords must use environment variables or config center - no hardcoding
 - Migration files must be synced with code, idempotent
+
+## Development Workflow
+
+**分支策略：** 每次开发必须基于子分支最新进度开发，禁止直接在 main 分支开发。
+
+**提交前检查清单（必须全部通过）：**
+1. 编译检查：`go build ./...` 成功无报错
+2. 语法检查：`go fmt ./...` 无格式问题
+3. 静态检查：`golangci-lint run` 无警告（如已安装）
+4. 单元测试：`go test ./...` 全部通过
+5. 代码规范：符合《阿里巴巴 Java 开发手册》Go 适配版
+6. 性能检查：无明显的性能问题（N+1 查询、内存泄漏风险等）
+
+**提交流程：**
+```bash
+# 1. 确保在子分支
+git checkout feature/xxx
+
+# 2. 拉取最新代码
+git pull origin feature/xxx
+
+# 3. 执行检查
+go fmt ./...
+go build ./...
+go test ./...
+
+# 4. 提交并推送
+git add .
+git commit -m "feat: 描述"
+git push origin feature/xxx
+```

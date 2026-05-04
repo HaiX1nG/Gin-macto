@@ -15,16 +15,16 @@ type JoinRoomRequest struct {
 
 // RoomInfoResponse 房间信息响应
 type RoomInfoResponse struct {
-	ID                  uint64 `json:"id"`
-	RoomName            string `json:"roomName"`
-	RoomType            int8   `json:"roomType"`
-	HostUserID          uint64 `json:"hostUserId"`
-	IsPrivate           bool   `json:"isPrivate"`
-	InviteCode          string `json:"inviteCode,omitempty"`
-	MaxParticipants     uint32 `json:"maxParticipants"`
+	ID                    uint64  `json:"id"`
+	RoomName              string  `json:"roomName"`
+	RoomType              int8    `json:"roomType"`
+	HostUserID            uint64  `json:"hostUserId"`
+	IsPrivate             bool    `json:"isPrivate"`
+	InviteCode            string  `json:"inviteCode,omitempty"`
+	MaxParticipants       uint32  `json:"maxParticipants"`
 	CurrentPlaylistItemID *uint64 `json:"currentPlaylistItemId,omitempty"`
-	ParticipantCount    int    `json:"participantCount"`
-	CreatedAt           string `json:"createdAt"`
+	ParticipantCount      int     `json:"participantCount"`
+	CreatedAt             string  `json:"createdAt"`
 }
 
 // ParticipantResponse 参与者响应
@@ -40,7 +40,7 @@ type ParticipantResponse struct {
 
 // RoomListRequest 房间列表请求
 type RoomListRequest struct {
-	Page     int   `form:"page" binding:"omitempty,min=1"`
-	PageSize int   `form:"pageSize" binding:"omitempty,min=1,max=50"`
-	RoomType int8  `form:"roomType" binding:"omitempty,min=1,max=4"`
+	Page     int  `form:"page" binding:"omitempty,min=1"`
+	PageSize int  `form:"pageSize" binding:"omitempty,min=1,max=50"`
+	RoomType int8 `form:"roomType" binding:"omitempty,min=1,max=4"`
 }

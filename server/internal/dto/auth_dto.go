@@ -15,13 +15,13 @@ type LoginRequest struct {
 
 // LoginResponse 登录响应
 type LoginResponse struct {
-	UserID      uint64 `json:"userId"`
-	Username    string `json:"username"`
-	Email       string `json:"email"`
-	AvatarURL   string `json:"avatarUrl"`
-	AccessToken string `json:"accessToken"`
+	UserID       uint64 `json:"userId"`
+	Username     string `json:"username"`
+	Email        string `json:"email"`
+	AvatarURL    string `json:"avatarUrl"`
+	AccessToken  string `json:"accessToken"`
 	RefreshToken string `json:"refreshToken"`
-	ExpiresIn   int64  `json:"expiresIn"`
+	ExpiresIn    int64  `json:"expiresIn"`
 }
 
 // RefreshTokenRequest 刷新Token请求

@@ -30,7 +30,7 @@ type VoiceSessionResponse struct {
 
 // WebRTCSignalRequest WebRTC信令请求
 type WebRTCSignalRequest struct {
-	Type      string `json:"type"`      // offer, answer, ice-candidate
-	TargetID  uint64 `json:"targetId"`  // 目标用户ID（可选，用于点对点）
-	Payload   string `json:"payload"`   // SDP或ICE候选数据
+	Type     string `json:"type"`     // offer, answer, ice-candidate
+	TargetID uint64 `json:"targetId"` // 目标用户ID（可选，用于点对点）
+	Payload  string `json:"payload"`  // SDP或ICE候选数据
 }

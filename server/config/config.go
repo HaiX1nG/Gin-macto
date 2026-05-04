@@ -43,11 +43,11 @@ type RedisConfig struct {
 
 // JWTConfig JWT配置
 type JWTConfig struct {
-	AccessTokenSecret   string        `mapstructure:"access_token_secret"`
-	RefreshTokenSecret  string        `mapstructure:"refresh_token_secret"`
-	AccessTokenExpire   time.Duration `mapstructure:"access_token_expire"`
-	RefreshTokenExpire  time.Duration `mapstructure:"refresh_token_expire"`
-	Issuer              string        `mapstructure:"issuer"`
+	AccessTokenSecret  string        `mapstructure:"access_token_secret"`
+	RefreshTokenSecret string        `mapstructure:"refresh_token_secret"`
+	AccessTokenExpire  time.Duration `mapstructure:"access_token_expire"`
+	RefreshTokenExpire time.Duration `mapstructure:"refresh_token_expire"`
+	Issuer             string        `mapstructure:"issuer"`
 }
 
 // DSN 返回MySQL连接字符串

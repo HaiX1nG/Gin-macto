@@ -26,12 +26,12 @@ var (
 	Success = &Error{Code: 20000, Message: "成功"}
 
 	// 客户端错误 4xxxx
-	ErrBadRequest    = &Error{Code: 40000, Message: "请求错误"}
-	ErrInvalidParam  = &Error{Code: 40001, Message: "参数错误"}
-	ErrUnauthorized  = &Error{Code: 40003, Message: "未授权"}
-	ErrForbidden     = &Error{Code: 40004, Message: "禁止访问"}
-	ErrNotFound      = &Error{Code: 40005, Message: "资源不存在"}
-	ErrTooManyReq    = &Error{Code: 40006, Message: "请求过于频繁"}
+	ErrBadRequest   = &Error{Code: 40000, Message: "请求错误"}
+	ErrInvalidParam = &Error{Code: 40001, Message: "参数错误"}
+	ErrUnauthorized = &Error{Code: 40003, Message: "未授权"}
+	ErrForbidden    = &Error{Code: 40004, Message: "禁止访问"}
+	ErrNotFound     = &Error{Code: 40005, Message: "资源不存在"}
+	ErrTooManyReq   = &Error{Code: 40006, Message: "请求过于频繁"}
 
 	// 用户模块错误 401xx
 	ErrUserNotFound      = &Error{Code: 40100, Message: "用户不存在"}
@@ -42,17 +42,17 @@ var (
 	ErrTokenExpired      = &Error{Code: 40105, Message: "Token已过期"}
 
 	// 房间模块错误 402xx
-	ErrRoomNotFound       = &Error{Code: 40200, Message: "房间不存在"}
-	ErrRoomFull           = &Error{Code: 40201, Message: "房间已满"}
-	ErrRoomPrivate        = &Error{Code: 40202, Message: "私密房间需要邀请码"}
-	ErrInvalidInviteCode  = &Error{Code: 40203, Message: "邀请码无效"}
-	ErrAlreadyInRoom      = &Error{Code: 40204, Message: "已在房间中"}
-	ErrNotInRoom          = &Error{Code: 40205, Message: "不在房间中"}
-	ErrNotRoomHost        = &Error{Code: 40206, Message: "不是房主"}
-	ErrRoomClosed         = &Error{Code: 40207, Message: "房间已关闭"}
+	ErrRoomNotFound      = &Error{Code: 40200, Message: "房间不存在"}
+	ErrRoomFull          = &Error{Code: 40201, Message: "房间已满"}
+	ErrRoomPrivate       = &Error{Code: 40202, Message: "私密房间需要邀请码"}
+	ErrInvalidInviteCode = &Error{Code: 40203, Message: "邀请码无效"}
+	ErrAlreadyInRoom     = &Error{Code: 40204, Message: "已在房间中"}
+	ErrNotInRoom         = &Error{Code: 40205, Message: "不在房间中"}
+	ErrNotRoomHost       = &Error{Code: 40206, Message: "不是房主"}
+	ErrRoomClosed        = &Error{Code: 40207, Message: "房间已关闭"}
 
 	// 播放列表错误 403xx
-	ErrPlaylistEmpty    = &Error{Code: 40300, Message: "播放列表为空"}
+	ErrPlaylistEmpty        = &Error{Code: 40300, Message: "播放列表为空"}
 	ErrPlaylistItemNotFound = &Error{Code: 40301, Message: "播放项不存在"}
 
 	// 聊天模块错误 404xx
