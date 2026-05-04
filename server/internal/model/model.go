@@ -22,7 +22,7 @@ func (User) TableName() string {
 type Room struct {
 	ID                    uint64    `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
 	RoomName              string    `gorm:"column:room_name;type:varchar(100);not null" json:"roomName"`
-	RoomType              int8      `gorm:"column:room_type;type:tinyint;not null" json:"roomType"` // 1=语音,2=音乐,3=屏幕共享,4=混合
+	RoomType              int8      `gorm:"column:room_type;type:tinyint;not null" json:"roomType"` // 1=文字聊天房,2=语音房
 	HostUserID            uint64    `gorm:"column:host_user_id;not null;index:idx_host" json:"hostUserId"`
 	IsPrivate             bool      `gorm:"column:is_private;type:tinyint(1);not null;default:0" json:"isPrivate"`
 	InviteCode            *string   `gorm:"column:invite_code;type:varchar(20);uniqueIndex:uk_invite_code" json:"inviteCode"`

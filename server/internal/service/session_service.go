@@ -55,8 +55,8 @@ func (s *ScreenShareService) StartScreenShare(ctx context.Context, roomID, userI
 		return nil, errcode.ErrNotInRoom
 	}
 
-	// 检查房间类型是否支持屏幕共享
-	if room.RoomType != 3 && room.RoomType != 4 {
+	// 检查房间类型是否支持屏幕共享（仅语音房支持）
+	if room.RoomType != 2 {
 		return nil, errcode.ErrBadRequest.WithMessage("该房间类型不支持屏幕共享")
 	}
 
@@ -193,8 +193,8 @@ func (s *VoiceService) JoinVoice(ctx context.Context, roomID, userID uint64) (*d
 		return nil, errcode.ErrDBError.WithMessage("查询房间失败")
 	}
 
-	// 检查房间类型是否支持语音
-	if room.RoomType != 1 && room.RoomType != 4 {
+	// 检查房间类型是否支持语音（仅语音房支持）
+	if room.RoomType != 2 {
 		return nil, errcode.ErrBadRequest.WithMessage("该房间类型不支持语音")
 	}
 

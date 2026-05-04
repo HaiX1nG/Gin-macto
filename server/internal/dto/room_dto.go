@@ -3,7 +3,7 @@ package dto
 // CreateRoomRequest 创建房间请求
 type CreateRoomRequest struct {
 	RoomName        string `json:"roomName" binding:"required,min=1,max=100"`
-	RoomType        int8   `json:"roomType" binding:"required,min=1,max=4"`
+	RoomType        int8   `json:"roomType" binding:"required,min=1,max=2"`
 	IsPrivate       bool   `json:"isPrivate"`
 	MaxParticipants uint32 `json:"maxParticipants" binding:"omitempty,min=2,max=100"`
 }
@@ -42,7 +42,7 @@ type ParticipantResponse struct {
 type RoomListRequest struct {
 	Page     int  `form:"page" binding:"omitempty,min=1"`
 	PageSize int  `form:"pageSize" binding:"omitempty,min=1,max=50"`
-	RoomType int8 `form:"roomType" binding:"omitempty,min=1,max=4"`
+	RoomType int8 `form:"roomType" binding:"omitempty,min=1,max=2"`
 }
 
 // OnlineCountResponse 房间在线人数响应

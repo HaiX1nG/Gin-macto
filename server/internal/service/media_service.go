@@ -40,8 +40,24 @@ func (s *PlaylistService) checkUserInRoom(ctx context.Context, roomID, userID ui
 	return nil
 }
 
+// checkRoomType 检查房间类型是否支持播放列表（仅语音房支持）
+func (s *PlaylistService) checkRoomType(ctx context.Context, roomID uint64) error {
+	room, err := s.roomRepo.FindByID(ctx, roomID)
+	if err != nil {
+		return errcode.ErrDBError.WithMessage("查询房间失败")
+	}
+	if room.RoomType != 2 {
+		return errcode.ErrBadRequest.WithMessage("该房间类型不支持音乐播放")
+	}
+	return nil
+}
+
 // AddItem 添加播放项
 func (s *PlaylistService) AddItem(ctx context.Context, roomID, userID uint64, req *dto.AddPlaylistItemRequest) (*dto.PlaylistItemResponse, error) {
+	// 检查房间类型是否支持播放列表
+	if err := s.checkRoomType(ctx, roomID); err != nil {
+		return nil, err
+	}
 	// 检查用户是否在房间中
 	if err := s.checkUserInRoom(ctx, roomID, userID); err != nil {
 		return nil, err
@@ -112,6 +128,10 @@ func (s *PlaylistService) RemoveItem(ctx context.Context, roomID, userID, itemID
 
 // GetPlaylist 获取播放列表
 func (s *PlaylistService) GetPlaylist(ctx context.Context, roomID, userID uint64) ([]dto.PlaylistItemResponse, error) {
+	// 检查房间类型是否支持播放列表
+	if err := s.checkRoomType(ctx, roomID); err != nil {
+		return nil, err
+	}
 	// 检查用户是否在房间中
 	if err := s.checkUserInRoom(ctx, roomID, userID); err != nil {
 		return nil, err
@@ -141,6 +161,10 @@ func (s *PlaylistService) GetPlaylist(ctx context.Context, roomID, userID uint64
 
 // Play 播放
 func (s *PlaylistService) Play(ctx context.Context, roomID, userID uint64) (*dto.PlaylistItemResponse, error) {
+	// 检查房间类型是否支持播放列表
+	if err := s.checkRoomType(ctx, roomID); err != nil {
+		return nil, err
+	}
 	// 检查用户是否在房间中
 	if err := s.checkUserInRoom(ctx, roomID, userID); err != nil {
 		return nil, err
