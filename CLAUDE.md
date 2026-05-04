@@ -220,3 +220,5 @@ git add .
 git commit -m "feat: 描述"
 git push origin feature/xxx
 ```
+
+**自动化规则：** 测试通过后自动上传分支，无需额外确认。
