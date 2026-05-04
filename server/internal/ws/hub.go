@@ -18,14 +18,18 @@ const (
 	EventMusicSync          EventType = "music_sync"
 	EventScreenShareStart   EventType = "screen_share_start"
 	EventScreenShareStop    EventType = "screen_share_stop"
-	EventScreenShareStarted EventType = "screen_share_started" // 广播用户开始共享
-	EventScreenShareStopped EventType = "screen_share_stopped" // 广播用户停止共享
+	EventScreenShareStarted EventType = "screen_share_started"
+	EventScreenShareStopped EventType = "screen_share_stopped"
+	EventAudioShareStart    EventType = "audio_share_start"
+	EventAudioShareStop     EventType = "audio_share_stop"
+	EventAudioShareStarted  EventType = "audio_share_started"
+	EventAudioShareStopped  EventType = "audio_share_stopped"
 	EventChatMessage        EventType = "chat_message"
 	EventParticipantUpdate  EventType = "participant_update"
 	EventWebRTCOffer        EventType = "webrtc_offer"
 	EventWebRTCAnswer       EventType = "webrtc_answer"
 	EventWebRTCIceCandidate EventType = "webrtc_ice_candidate"
-	EventWebRTCSignal       EventType = "webrtc_signal" // 统一的WebRTC信令事件
+	EventWebRTCSignal       EventType = "webrtc_signal"
 	EventUserOnline         EventType = "user_online"
 	EventUserOffline        EventType = "user_offline"
 )
