@@ -18,6 +18,8 @@ const (
 	EventMusicSync          EventType = "music_sync"
 	EventScreenShareStart   EventType = "screen_share_start"
 	EventScreenShareStop    EventType = "screen_share_stop"
+	EventScreenShareStarted EventType = "screen_share_started" // 广播用户开始共享
+	EventScreenShareStopped EventType = "screen_share_stopped" // 广播用户停止共享
 	EventChatMessage        EventType = "chat_message"
 	EventParticipantUpdate  EventType = "participant_update"
 	EventWebRTCOffer        EventType = "webrtc_offer"

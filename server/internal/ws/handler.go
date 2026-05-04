@@ -179,11 +179,13 @@ func (c *Client) handleEvent(event Event) {
 		signalType, _ := data["type"].(string)
 		targetID, _ := data["targetId"].(float64) // JSON数字默认解析为float64
 
+		// 构建符合前端期望的格式
 		signalData := map[string]interface{}{
 			"fromUserId":   c.UserID,
 			"fromUsername": c.Username,
 			"signal": map[string]interface{}{
 				"type":    signalType,
+				"targetId": uint64(targetID),
 				"payload": data["payload"],
 			},
 		}
@@ -217,15 +219,15 @@ func (c *Client) handleEvent(event Event) {
 		})
 
 	case EventScreenShareStart:
-		// 屏幕共享开始
-		c.Hub.BroadcastExcept(c.RoomID, EventScreenShareStart, map[string]interface{}{
+		// 用户开始屏幕共享（前端发送）
+		c.Hub.BroadcastExcept(c.RoomID, EventScreenShareStarted, map[string]interface{}{
 			"userId":   c.UserID,
 			"username": c.Username,
 		}, c.ID)
 
 	case EventScreenShareStop:
-		// 屏幕共享停止
-		c.Hub.BroadcastExcept(c.RoomID, EventScreenShareStop, map[string]interface{}{
+		// 用户停止屏幕共享（前端发送）
+		c.Hub.BroadcastExcept(c.RoomID, EventScreenShareStopped, map[string]interface{}{
 			"userId":   c.UserID,
 			"username": c.Username,
 		}, c.ID)
