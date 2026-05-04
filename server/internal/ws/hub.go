@@ -23,6 +23,7 @@ const (
 	EventWebRTCOffer        EventType = "webrtc_offer"
 	EventWebRTCAnswer       EventType = "webrtc_answer"
 	EventWebRTCIceCandidate EventType = "webrtc_ice_candidate"
+	EventWebRTCSignal       EventType = "webrtc_signal" // 统一的WebRTC信令事件
 	EventUserOnline         EventType = "user_online"
 	EventUserOffline        EventType = "user_offline"
 )
@@ -271,4 +272,72 @@ func (h *Hub) GetRoomClients(roomID uint64) []*Client {
 		clients = append(clients, client)
 	}
 	return clients
+}
+
+// GetClientByUserID 根据用户ID获取客户端
+func (h *Hub) GetClientByUserID(roomID, userID uint64) *Client {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	room, exists := h.rooms[roomID]
+	if !exists {
+		return nil
+	}
+
+	room.mu.RLock()
+	defer room.mu.RUnlock()
+
+	for _, client := range room.Clients {
+		if client.UserID == userID {
+			return client
+		}
+	}
+	return nil
+}
+
+// SendToClient 向特定客户端发送消息
+func (h *Hub) SendToClient(clientID string, event EventType, data interface{}) {
+	h.mu.RLock()
+	client, exists := h.clients[clientID]
+	h.mu.RUnlock()
+
+	if !exists {
+		return
+	}
+
+	dataBytes, err := json.Marshal(Event{
+		Event: event,
+		Data:  data,
+	})
+	if err != nil {
+		return
+	}
+
+	select {
+	case client.Send <- dataBytes:
+	default:
+		// 发送失败
+	}
+}
+
+// SendToUser 向特定用户发送消息（在指定房间内）
+func (h *Hub) SendToUser(roomID, userID uint64, event EventType, data interface{}) {
+	client := h.GetClientByUserID(roomID, userID)
+	if client == nil {
+		return
+	}
+
+	dataBytes, err := json.Marshal(Event{
+		Event: event,
+		Data:  data,
+	})
+	if err != nil {
+		return
+	}
+
+	select {
+	case client.Send <- dataBytes:
+	default:
+		// 发送失败
+	}
 }

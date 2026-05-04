@@ -168,9 +168,41 @@ func (c *Client) handleEvent(event Event) {
 			"data":       event.Data,
 		})
 
+	case EventWebRTCSignal:
+		// 统一的WebRTC信令处理
+		// 期望格式: { type: "offer|answer|ice-candidate", targetId?: number, payload: any }
+		data, ok := event.Data.(map[string]interface{})
+		if !ok {
+			return
+		}
+
+		signalType, _ := data["type"].(string)
+		targetID, _ := data["targetId"].(float64) // JSON数字默认解析为float64
+
+		signalData := map[string]interface{}{
+			"fromUserId":   c.UserID,
+			"fromUsername": c.Username,
+			"signal": map[string]interface{}{
+				"type":    signalType,
+				"payload": data["payload"],
+			},
+		}
+
+		// 如果指定了目标用户，只发给该用户
+		if targetID > 0 {
+			c.Hub.SendToUser(c.RoomID, uint64(targetID), EventWebRTCSignal, signalData)
+		} else {
+			// 广播给房间其他成员
+			c.Hub.BroadcastExcept(c.RoomID, EventWebRTCSignal, signalData, c.ID)
+		}
+
 	case EventWebRTCOffer, EventWebRTCAnswer, EventWebRTCIceCandidate:
-		// WebRTC信令，广播给房间其他成员
-		c.Hub.BroadcastExcept(c.RoomID, event.Event, event.Data, c.ID)
+		// 兼容旧格式：WebRTC信令，广播给房间其他成员
+		c.Hub.BroadcastExcept(c.RoomID, event.Event, map[string]interface{}{
+			"fromUserId":   c.UserID,
+			"fromUsername": c.Username,
+			"data":         event.Data,
+		}, c.ID)
 
 	case EventVoiceJoin:
 		c.Hub.Broadcast(c.RoomID, EventVoiceJoin, map[string]interface{}{
@@ -183,6 +215,20 @@ func (c *Client) handleEvent(event Event) {
 			"userId":   c.UserID,
 			"username": c.Username,
 		})
+
+	case EventScreenShareStart:
+		// 屏幕共享开始
+		c.Hub.BroadcastExcept(c.RoomID, EventScreenShareStart, map[string]interface{}{
+			"userId":   c.UserID,
+			"username": c.Username,
+		}, c.ID)
+
+	case EventScreenShareStop:
+		// 屏幕共享停止
+		c.Hub.BroadcastExcept(c.RoomID, EventScreenShareStop, map[string]interface{}{
+			"userId":   c.UserID,
+			"username": c.Username,
+		}, c.ID)
 	}
 }
 
