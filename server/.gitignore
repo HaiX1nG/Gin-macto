@@ -16,6 +16,9 @@ server
 *.exe
 *.exe~
 
+# Air temp directory
+tmp/
+
 # Test coverage
 *.out
 coverage.html
