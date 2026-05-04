@@ -51,8 +51,8 @@ func main() {
 	// 初始化服务
 	userService := service.NewUserService(userRepo)
 	roomService := service.NewRoomService(roomRepo, participantRepo, userRepo)
-	playlistService := service.NewPlaylistService(playlistRepo, roomRepo)
-	chatService := service.NewChatService(chatMsgRepo, userRepo)
+	playlistService := service.NewPlaylistService(playlistRepo, roomRepo, participantRepo)
+	chatService := service.NewChatService(chatMsgRepo, userRepo, participantRepo)
 	screenShareService := service.NewScreenShareService(screenShareRepo, roomRepo, userRepo, participantRepo)
 	voiceService := service.NewVoiceService(voiceSessionRepo, roomRepo, userRepo, participantRepo)
 

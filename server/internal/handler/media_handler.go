@@ -62,7 +62,9 @@ func (h *PlaylistHandler) RemoveItem(c *gin.Context) {
 		return
 	}
 
-	if err = h.playlistService.RemoveItem(c.Request.Context(), roomID, itemID); err != nil {
+	userID := c.GetUint64("userID")
+
+	if err = h.playlistService.RemoveItem(c.Request.Context(), roomID, userID, itemID); err != nil {
 		response.Fail(c, err)
 		return
 	}
@@ -79,7 +81,9 @@ func (h *PlaylistHandler) GetPlaylist(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.playlistService.GetPlaylist(c.Request.Context(), roomID)
+	userID := c.GetUint64("userID")
+
+	resp, err := h.playlistService.GetPlaylist(c.Request.Context(), roomID, userID)
 	if err != nil {
 		response.Fail(c, err)
 		return
@@ -97,7 +101,9 @@ func (h *PlaylistHandler) Play(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.playlistService.Play(c.Request.Context(), roomID)
+	userID := c.GetUint64("userID")
+
+	resp, err := h.playlistService.Play(c.Request.Context(), roomID, userID)
 	if err != nil {
 		response.Fail(c, err)
 		return
@@ -115,7 +121,9 @@ func (h *PlaylistHandler) Pause(c *gin.Context) {
 		return
 	}
 
-	if err = h.playlistService.Pause(c.Request.Context(), roomID); err != nil {
+	userID := c.GetUint64("userID")
+
+	if err = h.playlistService.Pause(c.Request.Context(), roomID, userID); err != nil {
 		response.Fail(c, err)
 		return
 	}
@@ -132,7 +140,9 @@ func (h *PlaylistHandler) Skip(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.playlistService.Skip(c.Request.Context(), roomID)
+	userID := c.GetUint64("userID")
+
+	resp, err := h.playlistService.Skip(c.Request.Context(), roomID, userID)
 	if err != nil {
 		response.Fail(c, err)
 		return
@@ -186,13 +196,15 @@ func (h *ChatHandler) GetMessages(c *gin.Context) {
 		return
 	}
 
+	userID := c.GetUint64("userID")
+
 	var req dto.MessageListRequest
 	if err = c.ShouldBindQuery(&req); err != nil {
 		response.FailWithMessage(c, errcode.ErrInvalidParam, "参数校验失败: "+err.Error())
 		return
 	}
 
-	resp, total, err := h.chatService.GetMessages(c.Request.Context(), roomID, req.Page, req.PageSize)
+	resp, total, err := h.chatService.GetMessages(c.Request.Context(), roomID, userID, req.Page, req.PageSize)
 	if err != nil {
 		response.Fail(c, err)
 		return

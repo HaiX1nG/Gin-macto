@@ -14,20 +14,39 @@ import (
 
 // PlaylistService 播放列表服务
 type PlaylistService struct {
-	playlistRepo *repository.PlaylistRepository
-	roomRepo     *repository.RoomRepository
+	playlistRepo    *repository.PlaylistRepository
+	roomRepo        *repository.RoomRepository
+	participantRepo *repository.RoomParticipantRepository
 }
 
 // NewPlaylistService 创建播放列表服务实例
-func NewPlaylistService(playlistRepo *repository.PlaylistRepository, roomRepo *repository.RoomRepository) *PlaylistService {
+func NewPlaylistService(playlistRepo *repository.PlaylistRepository, roomRepo *repository.RoomRepository, participantRepo *repository.RoomParticipantRepository) *PlaylistService {
 	return &PlaylistService{
-		playlistRepo: playlistRepo,
-		roomRepo:     roomRepo,
+		playlistRepo:    playlistRepo,
+		roomRepo:        roomRepo,
+		participantRepo: participantRepo,
 	}
+}
+
+// checkUserInRoom 检查用户是否在房间中
+func (s *PlaylistService) checkUserInRoom(ctx context.Context, roomID, userID uint64) error {
+	inRoom, err := s.participantRepo.ExistsActive(ctx, roomID, userID)
+	if err != nil {
+		return errcode.ErrDBError.WithMessage("检查参与者状态失败")
+	}
+	if !inRoom {
+		return errcode.ErrNotInRoom
+	}
+	return nil
 }
 
 // AddItem 添加播放项
 func (s *PlaylistService) AddItem(ctx context.Context, roomID, userID uint64, req *dto.AddPlaylistItemRequest) (*dto.PlaylistItemResponse, error) {
+	// 检查用户是否在房间中
+	if err := s.checkUserInRoom(ctx, roomID, userID); err != nil {
+		return nil, err
+	}
+
 	// 获取最大顺序号
 	maxOrder, err := s.playlistRepo.GetMaxOrder(ctx, roomID)
 	if err != nil {
@@ -62,7 +81,12 @@ func (s *PlaylistService) AddItem(ctx context.Context, roomID, userID uint64, re
 }
 
 // RemoveItem 删除播放项
-func (s *PlaylistService) RemoveItem(ctx context.Context, roomID, itemID uint64) error {
+func (s *PlaylistService) RemoveItem(ctx context.Context, roomID, userID, itemID uint64) error {
+	// 检查用户是否在房间中
+	if err := s.checkUserInRoom(ctx, roomID, userID); err != nil {
+		return err
+	}
+
 	item, err := s.playlistRepo.FindByID(ctx, itemID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -87,7 +111,12 @@ func (s *PlaylistService) RemoveItem(ctx context.Context, roomID, itemID uint64)
 }
 
 // GetPlaylist 获取播放列表
-func (s *PlaylistService) GetPlaylist(ctx context.Context, roomID uint64) ([]dto.PlaylistItemResponse, error) {
+func (s *PlaylistService) GetPlaylist(ctx context.Context, roomID, userID uint64) ([]dto.PlaylistItemResponse, error) {
+	// 检查用户是否在房间中
+	if err := s.checkUserInRoom(ctx, roomID, userID); err != nil {
+		return nil, err
+	}
+
 	items, err := s.playlistRepo.FindByRoom(ctx, roomID)
 	if err != nil {
 		return nil, errcode.ErrDBError.WithMessage("查询播放列表失败")
@@ -111,7 +140,12 @@ func (s *PlaylistService) GetPlaylist(ctx context.Context, roomID uint64) ([]dto
 }
 
 // Play 播放
-func (s *PlaylistService) Play(ctx context.Context, roomID uint64) (*dto.PlaylistItemResponse, error) {
+func (s *PlaylistService) Play(ctx context.Context, roomID, userID uint64) (*dto.PlaylistItemResponse, error) {
+	// 检查用户是否在房间中
+	if err := s.checkUserInRoom(ctx, roomID, userID); err != nil {
+		return nil, err
+	}
+
 	// 检查是否有正在播放的项目
 	playing, err := s.playlistRepo.FindPlayingByRoom(ctx, roomID)
 	if err == nil {
@@ -157,7 +191,12 @@ func (s *PlaylistService) Play(ctx context.Context, roomID uint64) (*dto.Playlis
 }
 
 // Pause 暂停
-func (s *PlaylistService) Pause(ctx context.Context, roomID uint64) error {
+func (s *PlaylistService) Pause(ctx context.Context, roomID, userID uint64) error {
+	// 检查用户是否在房间中
+	if err := s.checkUserInRoom(ctx, roomID, userID); err != nil {
+		return err
+	}
+
 	playing, err := s.playlistRepo.FindPlayingByRoom(ctx, roomID)
 	if err != nil {
 		return errcode.ErrBadRequest.WithMessage("没有正在播放的项目")
@@ -172,7 +211,12 @@ func (s *PlaylistService) Pause(ctx context.Context, roomID uint64) error {
 }
 
 // Skip 跳过
-func (s *PlaylistService) Skip(ctx context.Context, roomID uint64) (*dto.PlaylistItemResponse, error) {
+func (s *PlaylistService) Skip(ctx context.Context, roomID, userID uint64) (*dto.PlaylistItemResponse, error) {
+	// 检查用户是否在房间中
+	if err := s.checkUserInRoom(ctx, roomID, userID); err != nil {
+		return nil, err
+	}
+
 	// 获取正在播放的项目
 	playing, err := s.playlistRepo.FindPlayingByRoom(ctx, roomID)
 	if err != nil {
@@ -186,25 +230,36 @@ func (s *PlaylistService) Skip(ctx context.Context, roomID uint64) (*dto.Playlis
 	}
 
 	// 播放下一首
-	return s.Play(ctx, roomID)
+	return s.Play(ctx, roomID, userID)
 }
 
 // ChatService 聊天服务
 type ChatService struct {
-	msgRepo  *repository.ChatMessageRepository
-	userRepo *repository.UserRepository
+	msgRepo         *repository.ChatMessageRepository
+	userRepo        *repository.UserRepository
+	participantRepo *repository.RoomParticipantRepository
 }
 
 // NewChatService 创建聊天服务实例
-func NewChatService(msgRepo *repository.ChatMessageRepository, userRepo *repository.UserRepository) *ChatService {
+func NewChatService(msgRepo *repository.ChatMessageRepository, userRepo *repository.UserRepository, participantRepo *repository.RoomParticipantRepository) *ChatService {
 	return &ChatService{
-		msgRepo:  msgRepo,
-		userRepo: userRepo,
+		msgRepo:         msgRepo,
+		userRepo:        userRepo,
+		participantRepo: participantRepo,
 	}
 }
 
 // SendMessage 发送消息
 func (s *ChatService) SendMessage(ctx context.Context, roomID, userID uint64, req *dto.SendMessageRequest) (*dto.MessageResponse, error) {
+	// 检查用户是否在房间中
+	inRoom, err := s.participantRepo.ExistsActive(ctx, roomID, userID)
+	if err != nil {
+		return nil, errcode.ErrDBError.WithMessage("检查参与者状态失败")
+	}
+	if !inRoom {
+		return nil, errcode.ErrNotInRoom
+	}
+
 	// XSS过滤
 	content := util.TrimAndEscape(req.Content)
 
@@ -215,7 +270,7 @@ func (s *ChatService) SendMessage(ctx context.Context, roomID, userID uint64, re
 		Content:      content,
 	}
 
-	if err := s.msgRepo.Create(ctx, msg); err != nil {
+	if err = s.msgRepo.Create(ctx, msg); err != nil {
 		return nil, errcode.ErrDBError.WithMessage("发送消息失败")
 	}
 
@@ -237,7 +292,16 @@ func (s *ChatService) SendMessage(ctx context.Context, roomID, userID uint64, re
 }
 
 // GetMessages 获取消息列表
-func (s *ChatService) GetMessages(ctx context.Context, roomID uint64, page, pageSize int) ([]dto.MessageResponse, int64, error) {
+func (s *ChatService) GetMessages(ctx context.Context, roomID, userID uint64, page, pageSize int) ([]dto.MessageResponse, int64, error) {
+	// 检查用户是否在房间中
+	inRoom, err := s.participantRepo.ExistsActive(ctx, roomID, userID)
+	if err != nil {
+		return nil, 0, errcode.ErrDBError.WithMessage("检查参与者状态失败")
+	}
+	if !inRoom {
+		return nil, 0, errcode.ErrNotInRoom
+	}
+
 	if page == 0 {
 		page = 1
 	}
