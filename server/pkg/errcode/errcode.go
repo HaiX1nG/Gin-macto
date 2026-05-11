@@ -93,7 +93,10 @@ func (e *Error) HTTPStatus() int {
 	}
 }
 
-// Is 判断错误是否为指定错误
-func (e *Error) Is(target *Error) bool {
-	return e.Code == target.Code
+// Is 判断错误是否为指定错误 (实现 errors.Is 接口)
+func (e *Error) Is(target error) bool {
+	if t, ok := target.(*Error); ok {
+		return e.Code == t.Code
+	}
+	return false
 }

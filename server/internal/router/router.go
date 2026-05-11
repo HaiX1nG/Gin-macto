@@ -45,6 +45,7 @@ func SetupRouter(
 		userGroup.PUT("/password", authHandler.ChangePassword)
 		userGroup.PUT("/status", authHandler.SetCustomStatus)
 		userGroup.GET("/messages", chatHandler.GetUserHistoryMessages)
+		userGroup.DELETE("/account", authHandler.DeleteAccount)
 	}
 
 	// 房间相关

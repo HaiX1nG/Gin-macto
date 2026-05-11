@@ -73,3 +73,8 @@ type UserOnlineStatusResponse struct {
 	CustomStatus string `json:"customStatus"`
 	LastSeenAt   string `json:"lastSeenAt,omitempty"`
 }
+
+// DeleteAccountRequest 删除账户请求
+type DeleteAccountRequest struct {
+	Password string `json:"password" binding:"required,min=6,max=50"`
+}

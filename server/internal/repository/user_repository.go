@@ -71,6 +71,11 @@ func (r *UserRepository) ExistsByEmail(ctx context.Context, email string) (bool,
 	return count > 0, err
 }
 
+// Delete 删除用户（硬删除）
+func (r *UserRepository) Delete(ctx context.Context, id uint64) error {
+	return r.db.WithContext(ctx).Delete(&model.User{}, id).Error
+}
+
 // UserStatusRepository 用户状态仓储
 type UserStatusRepository struct {
 	db *gorm.DB
@@ -130,4 +135,9 @@ func (r *UserStatusRepository) SetCustomStatus(ctx context.Context, userID uint6
 		Exec(`INSERT INTO user_status (user_id, custom_status, updated_at, created_at)
 			VALUES (?, ?, NOW(), NOW())
 			ON DUPLICATE KEY UPDATE custom_status = ?, updated_at = NOW()`, userID, customStatus, customStatus).Error
+}
+
+// DeleteByUserID 根据用户ID删除状态记录
+func (r *UserStatusRepository) DeleteByUserID(ctx context.Context, userID uint64) error {
+	return r.db.WithContext(ctx).Where("user_id = ?", userID).Delete(&model.UserStatus{}).Error
 }

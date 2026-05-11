@@ -184,9 +184,9 @@ func (c *Client) handleEvent(event Event) {
 			"fromUserId":   c.UserID,
 			"fromUsername": c.Username,
 			"signal": map[string]interface{}{
-				"type":    signalType,
+				"type":     signalType,
 				"targetId": uint64(targetID),
-				"payload": data["payload"],
+				"payload":  data["payload"],
 			},
 		}
 
@@ -228,6 +228,20 @@ func (c *Client) handleEvent(event Event) {
 	case EventScreenShareStop:
 		// 用户停止屏幕共享（前端发送）
 		c.Hub.BroadcastExcept(c.RoomID, EventScreenShareStopped, map[string]interface{}{
+			"userId":   c.UserID,
+			"username": c.Username,
+		}, c.ID)
+
+	case EventAudioShareStart:
+		// 用户开始音频分享（前端发送）
+		c.Hub.BroadcastExcept(c.RoomID, EventAudioShareStarted, map[string]interface{}{
+			"userId":   c.UserID,
+			"username": c.Username,
+		}, c.ID)
+
+	case EventAudioShareStop:
+		// 用户停止音频分享（前端发送）
+		c.Hub.BroadcastExcept(c.RoomID, EventAudioShareStopped, map[string]interface{}{
 			"userId":   c.UserID,
 			"username": c.Username,
 		}, c.ID)

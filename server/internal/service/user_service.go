@@ -324,3 +324,34 @@ func (s *UserService) GetUsersOnlineStatus(ctx context.Context, userIDs []uint64
 
 	return responses, nil
 }
+
+// DeleteAccount 删除账户
+// 危险操作，需要验证用户密码
+// 删除用户记录及关联的用户状态记录
+func (s *UserService) DeleteAccount(ctx context.Context, userID uint64, password string) error {
+	// 查询用户
+	user, err := s.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errcode.ErrUserNotFound
+		}
+		return errcode.ErrDBError.WithMessage("查询用户失败")
+	}
+
+	// 验证密码
+	if !util.CheckPassword(password, user.PasswordHash) {
+		return errcode.ErrWrongPassword
+	}
+
+	// 删除用户状态记录
+	if err = s.statusRepo.DeleteByUserID(ctx, userID); err != nil {
+		return errcode.ErrDBError.WithMessage("删除用户状态失败")
+	}
+
+	// 删除用户记录
+	if err = s.userRepo.Delete(ctx, userID); err != nil {
+		return errcode.ErrDBError.WithMessage("删除用户失败")
+	}
+
+	return nil
+}

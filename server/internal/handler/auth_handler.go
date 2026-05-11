@@ -158,3 +158,21 @@ func (h *AuthHandler) GetUserOnlineStatus(c *gin.Context) {
 
 	response.Success(c, resp)
 }
+
+// DeleteAccount 删除账户
+func (h *AuthHandler) DeleteAccount(c *gin.Context) {
+	userID := c.GetUint64("userID")
+
+	var req dto.DeleteAccountRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(c, nil, "参数校验失败: "+err.Error())
+		return
+	}
+
+	if err := h.userService.DeleteAccount(c.Request.Context(), userID, req.Password); err != nil {
+		response.Fail(c, err)
+		return
+	}
+
+	response.Success(c, nil)
+}
