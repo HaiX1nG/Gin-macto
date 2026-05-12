@@ -42,6 +42,7 @@ func SetupRouter(
 	userGroup.Use(middleware.JWTAuth())
 	{
 		userGroup.GET("/info", authHandler.GetUserInfo)
+			userGroup.GET("/profile", authHandler.GetUserInfo) // 别名路由，与 /info 返回相同数据
 		userGroup.PUT("/profile", authHandler.UpdateProfile)
 		userGroup.PUT("/password", authHandler.ChangePassword)
 		userGroup.PUT("/status", authHandler.SetCustomStatus)
