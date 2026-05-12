@@ -238,3 +238,22 @@ func (h *ChatHandler) GetUserHistoryMessages(c *gin.Context) {
 
 	response.Page(c, resp, total, req.Page, req.PageSize)
 }
+
+// SearchMessages 搜索消息
+func (h *ChatHandler) SearchMessages(c *gin.Context) {
+	userID := c.GetUint64("userID")
+
+	var req dto.SearchMessagesRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.FailWithMessage(c, errcode.ErrInvalidParam, "参数校验失败: "+err.Error())
+		return
+	}
+
+	resp, err := h.chatService.SearchMessages(c.Request.Context(), &req, userID)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+
+	response.Success(c, resp)
+}

@@ -69,3 +69,17 @@ type UserHistoryMessageResponse struct {
 	Content      string `json:"content"`
 	CreatedAt    string `json:"createdAt"`
 }
+
+// SearchMessagesRequest 消息搜索请求
+type SearchMessagesRequest struct {
+	Query    string `form:"query" binding:"required,min=1,max=100"`
+	RoomID   uint64 `form:"roomId" binding:"omitempty"`
+	Page     int    `form:"page" binding:"omitempty,min=1"`
+	PageSize int    `form:"pageSize" binding:"omitempty,min=1,max=100"`
+}
+
+// SearchMessagesResponse 消息搜索响应
+type SearchMessagesResponse struct {
+	Messages []MessageResponse `json:"messages"`
+	Total    int64             `json:"total"`
+}

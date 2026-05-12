@@ -58,6 +58,12 @@ var (
 	// 聊天模块错误 404xx
 	ErrMessageTooLong = &Error{Code: 40400, Message: "消息过长"}
 
+	// 好友模块错误 406xx
+	ErrFriendNotFound       = &Error{Code: 40600, Message: "好友不存在"}
+	ErrFriendRequestExists  = &Error{Code: 40601, Message: "好友请求已存在"}
+	ErrFriendRequestHandled = &Error{Code: 40602, Message: "好友请求已处理"}
+	ErrNotFriend            = &Error{Code: 40603, Message: "不是好友关系"}
+
 	// WebSocket错误 405xx
 	ErrWSConnectFailed = &Error{Code: 40500, Message: "WebSocket连接失败"}
 	ErrWSNotConnected  = &Error{Code: 40501, Message: "WebSocket未连接"}

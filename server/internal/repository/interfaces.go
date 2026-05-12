@@ -57,4 +57,5 @@ type ChatMessageRepositoryInterface interface {
 	Create(ctx context.Context, msg *model.ChatMessage) error
 	FindByRoom(ctx context.Context, roomID uint64, page, pageSize int) ([]model.ChatMessage, int64, error)
 	FindRecentByRoom(ctx context.Context, roomID uint64, limit int) ([]model.ChatMessage, error)
+	SearchMessages(ctx context.Context, query string, roomID uint64, userID uint64, page, pageSize int) ([]model.ChatMessage, int64, error)
 }

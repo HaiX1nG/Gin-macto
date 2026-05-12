@@ -15,6 +15,7 @@ func SetupRouter(
 	chatHandler *handler.ChatHandler,
 	screenShareHandler *handler.ScreenShareHandler,
 	voiceHandler *handler.VoiceHandler,
+	friendHandler *handler.FriendHandler,
 	wsHandler *ws.Handler,
 ) *gin.Engine {
 	r := gin.New()
@@ -89,6 +90,9 @@ func SetupRouter(
 		chatGroup.POST("", chatHandler.SendMessage)
 	}
 
+	// 消息搜索（需要鉴权）
+	v1.GET("/messages/search", middleware.JWTAuth(), chatHandler.SearchMessages)
+
 	// 屏幕共享相关（需要鉴权）
 	screenShareGroup := v1.Group("/rooms/:id/screenshare")
 	screenShareGroup.Use(middleware.JWTAuth())
@@ -106,6 +110,29 @@ func SetupRouter(
 		voiceGroup.POST("/leave", voiceHandler.LeaveVoice)
 		voiceGroup.GET("/participants", voiceHandler.GetVoiceParticipants)
 		voiceGroup.POST("/mute", voiceHandler.SetMute)
+	}
+
+	// 好友相关（需要鉴权）
+	friendGroup := v1.Group("/friends")
+	friendGroup.Use(middleware.JWTAuth())
+	{
+		// 好友请求
+		friendGroup.POST("/request", friendHandler.SendFriendRequest)
+		friendGroup.POST("/request/:id/handle", friendHandler.HandleFriendRequest)
+		friendGroup.GET("/requests", friendHandler.GetPendingRequests)
+
+		// 好友列表
+		friendGroup.GET("", friendHandler.GetFriendList)
+		friendGroup.DELETE("/:id", friendHandler.DeleteFriend)
+
+		// 搜索用户
+		friendGroup.GET("/search", friendHandler.SearchUser)
+
+		// 私聊消息
+		friendGroup.POST("/messages", friendHandler.SendPrivateMessage)
+		friendGroup.GET("/messages/unread", friendHandler.GetUnreadCount)
+		friendGroup.GET("/:id/messages", friendHandler.GetPrivateMessages)
+		friendGroup.GET("/conversations", friendHandler.GetConversations)
 	}
 
 	// WebSocket

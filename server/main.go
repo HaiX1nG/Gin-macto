@@ -48,6 +48,7 @@ func main() {
 	chatMsgRepo := repository.NewChatMessageRepository(db)
 	screenShareRepo := repository.NewScreenShareRepository(db)
 	voiceSessionRepo := repository.NewVoiceSessionRepository(db)
+	friendRepo := repository.NewFriendRepository(db)
 
 	// 初始化服务
 	userService := service.NewUserService(userRepo, userStatusRepo)
@@ -56,6 +57,7 @@ func main() {
 	chatService := service.NewChatService(chatMsgRepo, userRepo, participantRepo)
 	screenShareService := service.NewScreenShareService(screenShareRepo, roomRepo, userRepo, participantRepo)
 	voiceService := service.NewVoiceService(voiceSessionRepo, roomRepo, userRepo, participantRepo)
+	friendService := service.NewFriendService(friendRepo, userRepo, userStatusRepo)
 
 	// 初始化处理器
 	authHandler := handler.NewAuthHandler(userService)
@@ -64,6 +66,7 @@ func main() {
 	chatHandler := handler.NewChatHandler(chatService)
 	screenShareHandler := handler.NewScreenShareHandler(screenShareService)
 	voiceHandler := handler.NewVoiceHandler(voiceService)
+	friendHandler := handler.NewFriendHandler(friendService)
 
 	// 初始化WebSocket Hub
 	hub := ws.NewHub(userService)
@@ -71,7 +74,7 @@ func main() {
 	wsHandler := ws.NewHandler(hub)
 
 	// 设置路由
-	r := router.SetupRouter(authHandler, roomHandler, playlistHandler, chatHandler, screenShareHandler, voiceHandler, wsHandler)
+	r := router.SetupRouter(authHandler, roomHandler, playlistHandler, chatHandler, screenShareHandler, voiceHandler, friendHandler, wsHandler)
 
 	// 启动服务器
 	srv := &http.Server{

@@ -406,3 +406,47 @@ func (s *ChatService) GetUserHistoryMessages(ctx context.Context, userID uint64,
 
 	return responses, total, nil
 }
+
+// SearchMessages 搜索消息
+func (s *ChatService) SearchMessages(ctx context.Context, req *dto.SearchMessagesRequest, userID uint64) (*dto.SearchMessagesResponse, error) {
+	if req.Page == 0 {
+		req.Page = 1
+	}
+	if req.PageSize == 0 {
+		req.PageSize = 50
+	}
+
+	messages, total, err := s.msgRepo.SearchMessages(ctx, req.Query, req.RoomID, userID, req.Page, req.PageSize)
+	if err != nil {
+		return nil, errcode.ErrDBError.WithMessage("搜索消息失败")
+	}
+
+	// 获取所有发送者ID
+	userMap := make(map[uint64]string)
+	for _, msg := range messages {
+		if _, ok := userMap[msg.SenderUserID]; !ok {
+			user, err := s.userRepo.FindByID(ctx, msg.SenderUserID)
+			if err == nil {
+				userMap[msg.SenderUserID] = user.Username
+			}
+		}
+	}
+
+	var responses []dto.MessageResponse
+	for _, msg := range messages {
+		responses = append(responses, dto.MessageResponse{
+			ID:           msg.ID,
+			RoomID:       msg.RoomID,
+			SenderUserID: msg.SenderUserID,
+			SenderName:   userMap[msg.SenderUserID],
+			MessageType:  msg.MessageType,
+			Content:      msg.Content,
+			CreatedAt:    msg.CreatedAt.Format("2006-01-02 15:04:05"),
+		})
+	}
+
+	return &dto.SearchMessagesResponse{
+		Messages: responses,
+		Total:    total,
+	}, nil
+}

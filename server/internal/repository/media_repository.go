@@ -203,3 +203,45 @@ func (r *ChatMessageRepository) FindUserHistoryMessages(ctx context.Context, use
 
 	return results, total, err
 }
+
+// SearchMessages 搜索消息
+func (r *ChatMessageRepository) SearchMessages(ctx context.Context, query string, roomID uint64, userID uint64, page, pageSize int) ([]model.ChatMessage, int64, error) {
+	var messages []model.ChatMessage
+	var total int64
+
+	// 查询用户参与过的房间ID
+	subQuery := r.db.WithContext(ctx).
+		Model(&model.RoomParticipant{}).
+		Select("DISTINCT room_id").
+		Where("user_id = ?", userID)
+
+	// 构建搜索查询
+	searchQuery := r.db.WithContext(ctx).
+		Model(&model.ChatMessage{}).
+		Where("content LIKE ?", "%"+query+"%").
+		Where("room_id IN (?)", subQuery)
+
+	// 如果指定了房间ID，则只在该房间搜索
+	if roomID > 0 {
+		searchQuery = searchQuery.Where("room_id = ?", roomID)
+	}
+
+	// 统计总数
+	if err := searchQuery.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 查询消息
+	offset := (page - 1) * pageSize
+	err := r.db.WithContext(ctx).
+		Model(&model.ChatMessage{}).
+		Where("content LIKE ?", "%"+query+"%").
+		Where("room_id IN (?)", subQuery).
+		Where(roomID > 0, "room_id = ?", roomID).
+		Order("created_at DESC").
+		Offset(offset).
+		Limit(pageSize).
+		Find(&messages).Error
+
+	return messages, total, err
+}
