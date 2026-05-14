@@ -34,7 +34,7 @@ func TestErrcode_WithMessage(t *testing.T) {
 func TestErrcode_HTTPStatus(t *testing.T) {
 	assert.Equal(t, 200, errcode.Success.HTTPStatus())
 	assert.Equal(t, 400, errcode.ErrBadRequest.HTTPStatus())
-	assert.Equal(t, 400, errcode.ErrUnauthorized.HTTPStatus()) // 40100-40199 返回 400
+	assert.Equal(t, 401, errcode.ErrUnauthorized.HTTPStatus()) // 40003 精确映射到 401
 	assert.Equal(t, 500, errcode.ErrInternalServer.HTTPStatus())
 }
 
@@ -96,6 +96,35 @@ func (m *MockUserRepo) ExistsByEmail(ctx context.Context, email string) (bool, e
 		}
 	}
 	return false, nil
+}
+
+// Delete 删除用户（硬删除）
+func (m *MockUserRepo) Delete(ctx context.Context, id uint64) error {
+	for username, u := range m.users {
+		if u.ID == id {
+			delete(m.users, username)
+			return nil
+		}
+	}
+	return nil
+}
+
+// DeleteWithDB 使用指定 DB 删除用户（用于事务）
+func (m *MockUserRepo) DeleteWithDB(db *gorm.DB, id uint64) error {
+	return m.Delete(context.Background(), id)
+}
+
+// FindByIDs 批量查询用户
+func (m *MockUserRepo) FindByIDs(ctx context.Context, userIDs []uint64) (map[uint64]*model.User, error) {
+	result := make(map[uint64]*model.User)
+	for _, u := range m.users {
+		for _, id := range userIDs {
+			if u.ID == id {
+				result[id] = u
+			}
+		}
+	}
+	return result, nil
 }
 
 // 确保MockUserRepo实现接口

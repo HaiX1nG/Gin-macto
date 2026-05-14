@@ -21,8 +21,12 @@ func SetupRouter(
 	r := gin.New()
 
 	// 中间件注册顺序：日志追踪 -> 限流 -> CORS -> 认证 -> 授权 -> 参数校验 -> handler
-	r.Use(gin.Logger())
-	r.Use(gin.Recovery())
+	// RequestID 中间件必须放在最前面，确保所有后续中间件和处理器都能获取到 TraceID
+	r.Use(middleware.RequestID())
+	// 使用自定义的 zap 日志中间件替换 gin 默认日志
+	r.Use(middleware.Logger())
+	// 使用自定义的恢复中间件，记录完整的 panic 堆栈信息
+	r.Use(middleware.Recovery())
 	r.Use(middleware.CORS())
 	r.Use(middleware.RateLimiter(100))
 
@@ -35,6 +39,7 @@ func SetupRouter(
 		authGroup.POST("/register", authHandler.Register)
 		authGroup.POST("/login", authHandler.Login)
 		authGroup.POST("/refresh", authHandler.RefreshToken)
+		authGroup.POST("/logout", middleware.JWTAuth(), authHandler.Logout)
 	}
 
 	// 用户相关（需要鉴权）
@@ -42,7 +47,7 @@ func SetupRouter(
 	userGroup.Use(middleware.JWTAuth())
 	{
 		userGroup.GET("/info", authHandler.GetUserInfo)
-			userGroup.GET("/profile", authHandler.GetUserInfo) // 别名路由，与 /info 返回相同数据
+		userGroup.GET("/profile", authHandler.GetUserInfo) // 别名路由，与 /info 返回相同数据
 		userGroup.PUT("/profile", authHandler.UpdateProfile)
 		userGroup.PUT("/password", authHandler.ChangePassword)
 		userGroup.PUT("/status", authHandler.SetCustomStatus)

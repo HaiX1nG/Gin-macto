@@ -17,11 +17,16 @@ import (
 type UserService struct {
 	userRepo   *repository.UserRepository
 	statusRepo *repository.UserStatusRepository
+	txManager  *repository.GormTransactionManager
 }
 
 // NewUserService 创建用户服务实例
-func NewUserService(userRepo *repository.UserRepository, statusRepo *repository.UserStatusRepository) *UserService {
-	return &UserService{userRepo: userRepo, statusRepo: statusRepo}
+func NewUserService(userRepo *repository.UserRepository, statusRepo *repository.UserStatusRepository, txManager *repository.GormTransactionManager) *UserService {
+	return &UserService{
+		userRepo:   userRepo,
+		statusRepo: statusRepo,
+		txManager:  txManager,
+	}
 }
 
 // Register 用户注册
@@ -327,7 +332,7 @@ func (s *UserService) GetUsersOnlineStatus(ctx context.Context, userIDs []uint64
 
 // DeleteAccount 删除账户
 // 危险操作，需要验证用户密码
-// 删除用户记录及关联的用户状态记录
+// 使用事务确保删除用户状态记录和删除用户记录的原子性
 func (s *UserService) DeleteAccount(ctx context.Context, userID uint64, password string) error {
 	// 查询用户
 	user, err := s.userRepo.FindByID(ctx, userID)
@@ -343,14 +348,25 @@ func (s *UserService) DeleteAccount(ctx context.Context, userID uint64, password
 		return errcode.ErrWrongPassword
 	}
 
-	// 删除用户状态记录
-	if err = s.statusRepo.DeleteByUserID(ctx, userID); err != nil {
-		return errcode.ErrDBError.WithMessage("删除用户状态失败")
-	}
+	// 使用事务删除用户状态记录和用户记录
+	// 确保两个操作要么全部成功，要么全部回滚
+	// 避免删除状态后用户删除失败导致的数据不一致问题
+	err = s.txManager.Transactional(ctx, func(tx repository.TransactionContext) error {
+		// 删除用户状态记录
+		if deleteErr := s.statusRepo.DeleteByUserIDWithDB(tx.DB(), userID); deleteErr != nil {
+			return deleteErr
+		}
 
-	// 删除用户记录
-	if err = s.userRepo.Delete(ctx, userID); err != nil {
-		return errcode.ErrDBError.WithMessage("删除用户失败")
+		// 删除用户记录
+		if deleteErr := s.userRepo.DeleteWithDB(tx.DB(), userID); deleteErr != nil {
+			return deleteErr
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return errcode.ErrDBError.WithMessage("删除账户失败")
 	}
 
 	return nil

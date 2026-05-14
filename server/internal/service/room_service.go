@@ -16,18 +16,26 @@ type RoomService struct {
 	roomRepo        *repository.RoomRepository
 	participantRepo *repository.RoomParticipantRepository
 	userRepo        *repository.UserRepository
+	txManager       *repository.GormTransactionManager
 }
 
 // NewRoomService 创建房间服务实例
-func NewRoomService(roomRepo *repository.RoomRepository, participantRepo *repository.RoomParticipantRepository, userRepo *repository.UserRepository) *RoomService {
+func NewRoomService(
+	roomRepo *repository.RoomRepository,
+	participantRepo *repository.RoomParticipantRepository,
+	userRepo *repository.UserRepository,
+	txManager *repository.GormTransactionManager,
+) *RoomService {
 	return &RoomService{
 		roomRepo:        roomRepo,
 		participantRepo: participantRepo,
 		userRepo:        userRepo,
+		txManager:       txManager,
 	}
 }
 
 // CreateRoom 创建房间
+// 使用事务确保房间创建和参与者记录创建的原子性
 func (s *RoomService) CreateRoom(ctx context.Context, hostUserID uint64, req *dto.CreateRoomRequest) (*dto.RoomInfoResponse, error) {
 	// 验证用户是否存在
 	_, _ = s.userRepo.FindByID(ctx, hostUserID)
@@ -54,22 +62,35 @@ func (s *RoomService) CreateRoom(ctx context.Context, hostUserID uint64, req *dt
 		room.InviteCode = &inviteCode
 	}
 
-	if createErr := s.roomRepo.Create(ctx, room); createErr != nil {
+	// 使用事务创建房间和参与者记录
+	// 确保两个操作要么全部成功，要么全部回滚
+	var createdRoom *model.Room
+	err := s.txManager.Transactional(ctx, func(tx repository.TransactionContext) error {
+		// 创建房间
+		if createErr := s.roomRepo.CreateWithDB(tx.DB(), room); createErr != nil {
+			return createErr
+		}
+		createdRoom = room
+
+		// 创建房主参与者记录
+		participant := &model.RoomParticipant{
+			RoomID:   room.ID,
+			UserID:   hostUserID,
+			Role:     1, // 房主
+			IsActive: true,
+		}
+		if createErr := s.participantRepo.CreateWithDB(tx.DB(), participant); createErr != nil {
+			return createErr
+		}
+
+		return nil
+	})
+
+	if err != nil {
 		return nil, errcode.ErrDBError.WithMessage("创建房间失败")
 	}
 
-	// 创建房主参与者记录
-	participant := &model.RoomParticipant{
-		RoomID:   room.ID,
-		UserID:   hostUserID,
-		Role:     1, // 房主
-		IsActive: true,
-	}
-	if createErr := s.participantRepo.Create(ctx, participant); createErr != nil {
-		return nil, errcode.ErrDBError.WithMessage("创建参与者记录失败")
-	}
-
-	return s.buildRoomInfoResponse(ctx, room, 1)
+	return s.buildRoomInfoResponse(ctx, createdRoom, 1)
 }
 
 // JoinRoom 加入房间
@@ -126,6 +147,7 @@ func (s *RoomService) JoinRoom(ctx context.Context, userID uint64, roomID uint64
 }
 
 // LeaveRoom 离开房间
+// 使用事务确保离开状态更新和房间删除的原子性
 func (s *RoomService) LeaveRoom(ctx context.Context, userID uint64, roomID uint64) error {
 	// 检查是否在房间中
 	inRoom, err := s.participantRepo.ExistsActive(ctx, roomID, userID)
@@ -136,28 +158,41 @@ func (s *RoomService) LeaveRoom(ctx context.Context, userID uint64, roomID uint6
 		return errcode.ErrNotInRoom
 	}
 
-	// 设置离开状态
-	if err = s.participantRepo.Leave(ctx, roomID, userID); err != nil {
-		return errcode.ErrDBError.WithMessage("离开房间失败")
-	}
-
-	// 检查房间是否还有参与者
-	count, err := s.participantRepo.CountActiveByRoom(ctx, roomID)
-	if err != nil {
-		return errcode.ErrDBError.WithMessage("统计参与者数量失败")
-	}
-
-	// 如果房间空了，关闭房间
-	if count == 0 {
-		if err = s.roomRepo.Delete(ctx, roomID); err != nil {
-			return errcode.ErrDBError.WithMessage("关闭房间失败")
+	// 使用事务处理离开房间逻辑
+	// 确保参与者状态更新和房间删除（如果房间为空）的原子性
+	err = s.txManager.Transactional(ctx, func(tx repository.TransactionContext) error {
+		// 设置离开状态
+		if leaveErr := s.participantRepo.LeaveWithDB(tx.DB(), roomID, userID); leaveErr != nil {
+			return leaveErr
 		}
+
+		// 检查房间是否还有参与者（需要在同一事务中查询以保证一致性）
+		var count int64
+		if countErr := tx.DB().Model(&model.RoomParticipant{}).
+			Where("room_id = ? AND is_active = ?", roomID, true).
+			Count(&count).Error; countErr != nil {
+			return countErr
+		}
+
+		// 如果房间空了，关闭房间
+		if count == 0 {
+			if deleteErr := s.roomRepo.DeleteWithDB(tx.DB(), roomID); deleteErr != nil {
+				return deleteErr
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return errcode.ErrDBError.WithMessage("离开房间失败")
 	}
 
 	return nil
 }
 
 // GetRoomList 获取房间列表
+// 优化：使用批量查询替代循环查询，解决 N+1 问题
 func (s *RoomService) GetRoomList(ctx context.Context, req *dto.RoomListRequest) ([]dto.RoomInfoResponse, int64, error) {
 	if req.Page == 0 {
 		req.Page = 1
@@ -171,9 +206,27 @@ func (s *RoomService) GetRoomList(ctx context.Context, req *dto.RoomListRequest)
 		return nil, 0, errcode.ErrDBError.WithMessage("查询房间列表失败")
 	}
 
+	// 如果没有房间，直接返回空列表
+	if len(rooms) == 0 {
+		return []dto.RoomInfoResponse{}, total, nil
+	}
+
+	// 收集所有房间 ID
+	roomIDs := make([]uint64, 0, len(rooms))
+	for _, room := range rooms {
+		roomIDs = append(roomIDs, room.ID)
+	}
+
+	// 批量查询房间参与者数量（解决 N+1 问题）
+	countMap, err := s.participantRepo.CountActiveByRoomsBatch(ctx, roomIDs)
+	if err != nil {
+		return nil, 0, errcode.ErrDBError.WithMessage("统计参与者数量失败")
+	}
+
+	// 组装响应数据
 	var responses []dto.RoomInfoResponse
 	for _, room := range rooms {
-		count, _ := s.participantRepo.CountActiveByRoom(ctx, room.ID)
+		count := countMap[room.ID] // 默认为 0，已在 repository 中处理
 		resp, _ := s.buildRoomInfoResponse(ctx, &room, count)
 		responses = append(responses, *resp)
 	}
@@ -182,16 +235,35 @@ func (s *RoomService) GetRoomList(ctx context.Context, req *dto.RoomListRequest)
 }
 
 // GetRoomParticipants 获取房间参与者
+// 优化：使用批量查询替代循环查询，解决 N+1 问题
 func (s *RoomService) GetRoomParticipants(ctx context.Context, roomID uint64) ([]dto.ParticipantResponse, error) {
 	participants, err := s.participantRepo.FindActiveByRoom(ctx, roomID)
 	if err != nil {
 		return nil, errcode.ErrDBError.WithMessage("查询参与者失败")
 	}
 
+	// 如果没有参与者，直接返回空列表
+	if len(participants) == 0 {
+		return []dto.ParticipantResponse{}, nil
+	}
+
+	// 收集所有参与者用户 ID
+	userIDs := make([]uint64, 0, len(participants))
+	for _, p := range participants {
+		userIDs = append(userIDs, p.UserID)
+	}
+
+	// 批量查询用户信息（解决 N+1 问题）
+	userMap, err := s.userRepo.FindByIDs(ctx, userIDs)
+	if err != nil {
+		return nil, errcode.ErrDBError.WithMessage("查询用户信息失败")
+	}
+
+	// 组装响应数据
 	var responses []dto.ParticipantResponse
 	for _, p := range participants {
-		user, err := s.userRepo.FindByID(ctx, p.UserID)
-		if err != nil {
+		user, exists := userMap[p.UserID]
+		if !exists {
 			continue
 		}
 
@@ -271,6 +343,7 @@ func (s *RoomService) GetOnlineCount(ctx context.Context, roomID uint64) (*dto.O
 }
 
 // GetOnlineUsers 获取房间在线用户列表
+// 优化：使用批量查询替代循环查询，解决 N+1 问题
 func (s *RoomService) GetOnlineUsers(ctx context.Context, roomID uint64) ([]dto.OnlineUserResponse, error) {
 	// 检查房间是否存在
 	_, err := s.roomRepo.FindByID(ctx, roomID)
@@ -287,10 +360,28 @@ func (s *RoomService) GetOnlineUsers(ctx context.Context, roomID uint64) ([]dto.
 		return nil, errcode.ErrDBError.WithMessage("查询参与者失败")
 	}
 
+	// 如果没有参与者，直接返回空列表
+	if len(participants) == 0 {
+		return []dto.OnlineUserResponse{}, nil
+	}
+
+	// 收集所有参与者用户 ID
+	userIDs := make([]uint64, 0, len(participants))
+	for _, p := range participants {
+		userIDs = append(userIDs, p.UserID)
+	}
+
+	// 批量查询用户信息（解决 N+1 问题）
+	userMap, err := s.userRepo.FindByIDs(ctx, userIDs)
+	if err != nil {
+		return nil, errcode.ErrDBError.WithMessage("查询用户信息失败")
+	}
+
+	// 组装响应数据
 	var responses []dto.OnlineUserResponse
 	for _, p := range participants {
-		user, err := s.userRepo.FindByID(ctx, p.UserID)
-		if err != nil {
+		user, exists := userMap[p.UserID]
+		if !exists {
 			continue
 		}
 
@@ -352,6 +443,7 @@ func (s *RoomService) GetUserStatus(ctx context.Context, userID uint64) (*dto.Us
 }
 
 // DeleteRoom 删除房间（仅房主可操作）
+// 使用事务确保删除参与者和删除房间的原子性
 func (s *RoomService) DeleteRoom(ctx context.Context, userID, roomID uint64) error {
 	// 查询房间
 	room, err := s.roomRepo.FindByID(ctx, roomID)
@@ -367,13 +459,23 @@ func (s *RoomService) DeleteRoom(ctx context.Context, userID, roomID uint64) err
 		return errcode.ErrForbidden.WithMessage("只有房主才能删除房间")
 	}
 
-	// 删除所有参与者记录
-	if err = s.participantRepo.DeleteByRoom(ctx, roomID); err != nil {
-		return errcode.ErrDBError.WithMessage("删除参与者记录失败")
-	}
+	// 使用事务删除参与者记录和房间
+	// 确保两个操作要么全部成功，要么全部回滚
+	err = s.txManager.Transactional(ctx, func(tx repository.TransactionContext) error {
+		// 删除所有参与者记录
+		if deleteErr := s.participantRepo.DeleteByRoomWithDB(tx.DB(), roomID); deleteErr != nil {
+			return deleteErr
+		}
 
-	// 删除房间
-	if err = s.roomRepo.Delete(ctx, roomID); err != nil {
+		// 删除房间
+		if deleteErr := s.roomRepo.DeleteWithDB(tx.DB(), roomID); deleteErr != nil {
+			return deleteErr
+		}
+
+		return nil
+	})
+
+	if err != nil {
 		return errcode.ErrDBError.WithMessage("删除房间失败")
 	}
 

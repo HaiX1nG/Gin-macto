@@ -1,26 +1,142 @@
+# LiveMix 应用配置示例
+# 复制此文件为 config.yaml 并根据实际情况修改
+#
+# 安全规范：
+# 1. 敏感配置项（JWT密钥、数据库密码、Redis密码）禁止硬编码
+# 2. 生产环境必须通过环境变量设置敏感配置
+# 3. config.yaml 文件禁止提交到版本控制（已在 .gitignore 中配置）
+#
+# 环境变量命名规范：
+# - APP_JWT_ACCESS_TOKEN_SECRET: JWT访问令牌密钥
+# - APP_JWT_REFRESH_TOKEN_SECRET: JWT刷新令牌密钥
+# - APP_DB_PASSWORD: 数据库密码
+# - APP_REDIS_PASSWORD: Redis密码
+# - APP_ENV: 运行环境（development/production，默认 development）
+#
+# 配置优先级：环境变量 > 配置文件 > 默认值
+
 server:
+  # HTTP服务器端口
   port: 8080
+  # 读取超时时间
   read_timeout: 10s
+  # 写入超时时间
   write_timeout: 10s
 
 database:
+  # MySQL主机地址
   host: 127.0.0.1
+  # MySQL端口
   port: 3306
+  # 数据库用户名
   username: root
-  password: "123456"
+  # 数据库密码（生产环境请通过环境变量 APP_DB_PASSWORD 设置）
+  # 开发环境可在此设置，生产环境必须使用环境变量
+  password: ""
+  # 数据库名称
   database: livemix
+  # 最大空闲连接数
   max_idle_conns: 10
+  # 最大打开连接数
   max_open_conns: 100
 
 redis:
+  # Redis主机地址
   host: 127.0.0.1
+  # Redis端口
   port: 6379
+  # Redis密码（生产环境请通过环境变量 APP_REDIS_PASSWORD 设置）
+  # 如果Redis未设置密码，留空即可
   password: ""
+  # Redis数据库索引
   db: 0
 
 jwt:
-  access_token_secret: "your-access-token-secret-key-change-in-production"
-  refresh_token_secret: "your-refresh-token-secret-key-change-in-production"
+  # JWT访问令牌密钥（生产环境必须通过环境变量 APP_JWT_ACCESS_TOKEN_SECRET 设置）
+  # 开发环境可在此设置临时值，生产环境禁止使用默认值
+  access_token_secret: ""
+  # JWT刷新令牌密钥（生产环境必须通过环境变量 APP_JWT_REFRESH_TOKEN_SECRET 设置）
+  refresh_token_secret: ""
+  # 访问令牌过期时间
   access_token_expire: 15m
+  # 刷新令牌过期时间
   refresh_token_expire: 168h
+  # 令牌签发者
   issuer: livemix
+
+cors:
+  # 允许的域名白名单
+  # 开发环境默认包含 localhost 相关地址
+  # 生产环境必须配置为实际的域名列表，禁止使用 "*"
+  allow_origins:
+    - "http://localhost:3000"
+    - "http://localhost:5173"
+    - "http://127.0.0.1:3000"
+    - "http://127.0.0.1:5173"
+  # 允许的HTTP方法
+  allow_methods:
+    - GET
+    - POST
+    - PUT
+    - PATCH
+    - DELETE
+    - OPTIONS
+  # 允许的请求头
+  allow_headers:
+    - Origin
+    - Content-Type
+    - Content-Length
+    - Accept-Encoding
+    - X-Requested-With
+    - Authorization
+  # 暴露给客户端的响应头
+  expose_headers:
+    - Content-Length
+    - Access-Control-Allow-Origin
+    - Access-Control-Allow-Headers
+  # 是否允许携带凭证（cookies等）
+  # 注意：当 allow_credentials 为 true 时，allow_origins 不能包含 "*"
+  allow_credentials: true
+  # 预检请求缓存时间（秒）
+  max_age: 86400
+
+log:
+  # 日志级别 (debug/info/warn/error)
+  # 开发环境建议使用 debug 或 info
+  # 生产环境建议使用 info 或 warn
+  level: info
+  # 输出格式 (console/json)
+  # 开发环境使用 console，便于阅读
+  # 生产环境使用 json，便于日志收集和分析
+  format: console
+  # 输出路径，支持 stdout、stderr 或文件路径
+  # 可以同时输出到多个目标
+  output_paths:
+    - stdout
+  # 是否启用调用者信息（文件名和行号）
+  # 开发环境建议启用，便于调试
+  # 生产环境建议禁用，减少日志量
+  enable_caller: true
+
+websocket:
+  # 心跳超时时间
+  # 超过此时间未收到客户端消息或Pong响应则断开连接
+  # 建议设置为前端心跳间隔的2-3倍，允许丢失1-2次心跳
+  # 默认60秒，配合前端30秒心跳间隔
+  heartbeat_timeout: 60s
+  # Ping消息发送间隔
+  # 服务端定期发送Ping消息检测连接状态
+  # 默认30秒
+  ping_interval: 30s
+  # 写操作超时时间
+  # 发送消息到客户端的最大等待时间
+  # 默认10秒
+  write_timeout: 10s
+  # 读操作超时时间
+  # 从客户端读取消息的最大等待时间
+  # 默认60秒，与心跳超时一致
+  read_timeout: 60s
+  # 发送缓冲区大小
+  # 每个客户端的消息发送队列容量
+  # 默认256条消息
+  send_buffer_size: 256

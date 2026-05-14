@@ -62,6 +62,39 @@ func (r *FriendRepository) UpdateFriendRequest(ctx context.Context, req *model.F
 	return r.db.WithContext(ctx).Save(req).Error
 }
 
+// UpdateFriendRequestWithDB 使用指定 DB 更新好友请求（用于事务）
+// 注意：传入的 db 应通过 TransactionContext.DB() 获取，该 DB 已包含 context
+// 使用场景：在事务中更新好友请求状态，与创建好友关系在同一事务中执行
+func (r *FriendRepository) UpdateFriendRequestWithDB(db *gorm.DB, req *model.FriendRequest) error {
+	return db.Save(req).Error
+}
+
+// CreateFriendshipWithDB 使用指定 DB 创建好友关系（用于事务）
+// 注意：传入的 db 应通过 TransactionContext.DB() 获取，该 DB 已包含 context
+// 使用场景：在事务中创建双向好友关系，与更新好友请求状态在同一事务中执行
+// 该方法会创建两条好友关系记录（双向），确保操作的原子性
+func (r *FriendRepository) CreateFriendshipWithDB(db *gorm.DB, userID, friendID uint64) error {
+	// 创建 user -> friend
+	friendship1 := &model.Friendship{
+		UserID:   userID,
+		FriendID: friendID,
+	}
+	if err := db.Create(friendship1).Error; err != nil {
+		return err
+	}
+
+	// 创建 friend -> user
+	friendship2 := &model.Friendship{
+		UserID:   friendID,
+		FriendID: userID,
+	}
+	if err := db.Create(friendship2).Error; err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // FindPendingRequestsByReceiver 查询用户收到的待处理请求
 func (r *FriendRepository) FindPendingRequestsByReceiver(ctx context.Context, receiverID uint64, page, pageSize int) ([]model.FriendRequest, int64, error) {
 	var requests []model.FriendRequest
@@ -273,4 +306,83 @@ func (r *FriendRepository) FindConversations(ctx context.Context, userID uint64)
 	}
 
 	return result, nil
+}
+
+// GetLastMessagesBatch 批量获取多个会话的最后一条消息（解决 N+1 查询问题）
+// 参数 userPairs 为 [(userID, otherUserID), ...] 的切片
+// 返回以 "userID_otherUserID" 为 key 的最后消息 map（key 中较小的 ID 在前）
+func (r *FriendRepository) GetLastMessagesBatch(ctx context.Context, userID uint64, otherUserIDs []uint64) (map[uint64]*model.PrivateMessage, error) {
+	if len(otherUserIDs) == 0 {
+		return make(map[uint64]*model.PrivateMessage), nil
+	}
+
+	// 使用子查询获取每个会话的最后一条消息
+	// 查询条件：(sender_id = userID AND receiver_id IN otherUserIDs) OR (sender_id IN otherUserIDs AND receiver_id = userID)
+	var messages []model.PrivateMessage
+	err := r.db.WithContext(ctx).
+		Raw(`
+			SELECT pm.* FROM private_messages pm
+			INNER JOIN (
+				SELECT
+					CASE
+						WHEN sender_id = ? THEN receiver_id
+						ELSE sender_id
+					END as other_user_id,
+					MAX(created_at) as max_created_at
+				FROM private_messages
+				WHERE (sender_id = ? AND receiver_id IN ?)
+				   OR (sender_id IN ? AND receiver_id = ?)
+				GROUP BY other_user_id
+			) latest ON (
+				(pm.sender_id = ? AND pm.receiver_id = latest.other_user_id AND pm.created_at = latest.max_created_at)
+				OR (pm.receiver_id = ? AND pm.sender_id = latest.other_user_id AND pm.created_at = latest.max_created_at)
+			)
+		`, userID, userID, otherUserIDs, otherUserIDs, userID, userID, userID).
+		Scan(&messages).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// 转换为 map，key 为对方用户 ID
+	msgMap := make(map[uint64]*model.PrivateMessage, len(messages))
+	for i := range messages {
+		var otherUserID uint64
+		if messages[i].SenderID == userID {
+			otherUserID = messages[i].ReceiverID
+		} else {
+			otherUserID = messages[i].SenderID
+		}
+		msgMap[otherUserID] = &messages[i]
+	}
+	return msgMap, nil
+}
+
+// GetUnreadCountBatch 批量获取来自多个用户的未读消息数（解决 N+1 查询问题）
+// 返回以 senderID 为 key 的未读数 map
+func (r *FriendRepository) GetUnreadCountBatch(ctx context.Context, receiverID uint64, senderIDs []uint64) (map[uint64]int64, error) {
+	if len(senderIDs) == 0 {
+		return make(map[uint64]int64), nil
+	}
+
+	type unreadCount struct {
+		SenderID uint64 `gorm:"column:sender_id"`
+		Count    int64  `gorm:"column:count"`
+	}
+
+	var results []unreadCount
+	err := r.db.WithContext(ctx).Model(&model.PrivateMessage{}).
+		Select("sender_id, COUNT(*) as count").
+		Where("sender_id IN ? AND receiver_id = ? AND is_read = ?", senderIDs, receiverID, false).
+		Group("sender_id").
+		Scan(&results).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// 转换为 map
+	countMap := make(map[uint64]int64, len(results))
+	for _, r := range results {
+		countMap[r.SenderID] = r.Count
+	}
+	return countMap, nil
 }

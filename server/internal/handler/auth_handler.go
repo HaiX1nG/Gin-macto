@@ -1,11 +1,15 @@
 package handler
 
 import (
+	"context"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/yourorg/livemix/internal/dto"
+	"github.com/yourorg/livemix/internal/middleware"
 	"github.com/yourorg/livemix/internal/service"
+	"github.com/yourorg/livemix/pkg/jwt"
 	"github.com/yourorg/livemix/pkg/response"
 )
 
@@ -74,6 +78,30 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// Logout 用户退出登录
+// 将当前用户的Access Token加入黑名单，使其失效
+// 后续使用该Token的请求将被拒绝
+func (h *AuthHandler) Logout(c *gin.Context) {
+	// 从上下文获取Access Token
+	accessToken := middleware.GetAccessToken(c)
+	if accessToken == "" {
+		response.Success(c, dto.LogoutResponse{Success: true})
+		return
+	}
+
+	// 将Token加入黑名单
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+	defer cancel()
+
+	if err := jwt.AddAccessTokenToBlacklist(ctx, accessToken); err != nil {
+		// 即使加入黑名单失败，也返回成功
+		// Token会在过期后自动失效
+		// 日志记录在AddAccessTokenToBlacklist内部处理
+	}
+
+	response.Success(c, dto.LogoutResponse{Success: true})
+}
+
 // GetUserInfo 获取用户信息
 func (h *AuthHandler) GetUserInfo(c *gin.Context) {
 	userID := c.GetUint64("userID")
@@ -106,6 +134,7 @@ func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 }
 
 // ChangePassword 修改密码
+// 修改密码成功后，将当前Token加入黑名单，需要重新登录
 func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	userID := c.GetUint64("userID")
 
@@ -120,7 +149,20 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, nil)
+	// 修改密码成功后，将当前Token加入黑名单
+	// 强制用户使用新密码重新登录
+	accessToken := middleware.GetAccessToken(c)
+	if accessToken != "" {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		defer cancel()
+		// 即使加入黑名单失败也不影响密码修改结果
+		_ = jwt.AddAccessTokenToBlacklist(ctx, accessToken)
+	}
+
+	response.Success(c, gin.H{
+		"success": true,
+		"message": "密码修改成功，请重新登录",
+	})
 }
 
 // SetCustomStatus 设置自定义状态
@@ -160,6 +202,7 @@ func (h *AuthHandler) GetUserOnlineStatus(c *gin.Context) {
 }
 
 // DeleteAccount 删除账户
+// 删除账户后，将当前Token加入黑名单，使其立即失效
 func (h *AuthHandler) DeleteAccount(c *gin.Context) {
 	userID := c.GetUint64("userID")
 
@@ -172,6 +215,14 @@ func (h *AuthHandler) DeleteAccount(c *gin.Context) {
 	if err := h.userService.DeleteAccount(c.Request.Context(), userID, req.Password); err != nil {
 		response.Fail(c, err)
 		return
+	}
+
+	// 删除账户后，将当前Token加入黑名单
+	accessToken := middleware.GetAccessToken(c)
+	if accessToken != "" {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		defer cancel()
+		_ = jwt.AddAccessTokenToBlacklist(ctx, accessToken)
 	}
 
 	response.Success(c, nil)

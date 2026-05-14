@@ -24,6 +24,11 @@ type LoginResponse struct {
 	ExpiresIn    int64  `json:"expiresIn"`
 }
 
+// LogoutResponse 退出登录响应
+type LogoutResponse struct {
+	Success bool `json:"success" example:"true"`
+}
+
 // RefreshTokenRequest 刷新Token请求
 type RefreshTokenRequest struct {
 	RefreshToken string `json:"refreshToken" binding:"required"`
