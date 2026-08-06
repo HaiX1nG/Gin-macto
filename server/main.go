@@ -92,6 +92,7 @@ func main() {
 	screenShareService := service.NewScreenShareService(screenShareRepo, roomRepo, userRepo, participantRepo)
 	voiceService := service.NewVoiceService(voiceSessionRepo, roomRepo, userRepo, participantRepo)
 	friendService := service.NewFriendService(friendRepo, userRepo, userStatusRepo, txManager)
+	uploadService := service.NewUploadService()
 
 	// 初始化处理器
 	authHandler := handler.NewAuthHandler(userService)
@@ -101,6 +102,7 @@ func main() {
 	screenShareHandler := handler.NewScreenShareHandler(screenShareService)
 	voiceHandler := handler.NewVoiceHandler(voiceService)
 	friendHandler := handler.NewFriendHandler(friendService)
+	uploadHandler := handler.NewUploadHandler(uploadService)
 
 	// 初始化WebSocket Hub，使用配置中的心跳超时时间
 	hub := ws.NewHub(userService, cfg.WebSocket.HeartbeatTimeout)
@@ -110,7 +112,7 @@ func main() {
 		zap.Duration("heartbeat_timeout", cfg.WebSocket.HeartbeatTimeout))
 
 	// 设置路由
-	r := router.SetupRouter(authHandler, roomHandler, playlistHandler, chatHandler, screenShareHandler, voiceHandler, friendHandler, wsHandler)
+	r := router.SetupRouter(authHandler, roomHandler, playlistHandler, chatHandler, screenShareHandler, voiceHandler, friendHandler, uploadHandler, wsHandler)
 
 	// 启动服务器
 	srv := &http.Server{

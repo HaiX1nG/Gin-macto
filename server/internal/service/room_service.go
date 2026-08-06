@@ -481,3 +481,101 @@ func (s *RoomService) DeleteRoom(ctx context.Context, userID, roomID uint64) err
 
 	return nil
 }
+
+// GetPublicRooms 获取公开房间列表
+// roomRepo.List 已仅返回非私密房间（is_private = false），此处复用同一查询逻辑
+// 对应前端 roomService.getPublicRooms -> GET /rooms/public
+func (s *RoomService) GetPublicRooms(ctx context.Context, req *dto.RoomListRequest) ([]dto.RoomInfoResponse, int64, error) {
+	return s.GetRoomList(ctx, req)
+}
+
+// KickMember 踢出房间成员（仅房主或管理员可操作）
+// 对应前端 roomService.kickParticipant -> POST /rooms/:id/kick/:userId
+func (s *RoomService) KickMember(ctx context.Context, callerID, roomID, targetUserID uint64) error {
+	// 查询房间
+	_, err := s.roomRepo.FindByID(ctx, roomID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errcode.ErrRoomNotFound
+		}
+		return errcode.ErrDBError.WithMessage("查询房间失败")
+	}
+
+	// 校验调用者权限：房主(1)或管理员(2)可踢人
+	caller, err := s.participantRepo.FindByRoomAndUser(ctx, roomID, callerID)
+	if err != nil {
+		return errcode.ErrNotInRoom
+	}
+	if caller.Role != 1 && caller.Role != 2 {
+		return errcode.ErrForbidden.WithMessage("只有房主或管理员才能踢出成员")
+	}
+
+	// 不能踢自己
+	if callerID == targetUserID {
+		return errcode.ErrBadRequest.WithMessage("不能踢出自己")
+	}
+
+	// 校验目标用户在房间中
+	target, err := s.participantRepo.FindByRoomAndUser(ctx, roomID, targetUserID)
+	if err != nil {
+		return errcode.ErrNotInRoom.WithMessage("目标用户不在房间中")
+	}
+
+	// 房主不能被踢
+	if target.Role == 1 {
+		return errcode.ErrForbidden.WithMessage("不能踢出房主")
+	}
+
+	// 设置目标用户离开房间
+	if err = s.participantRepo.Leave(ctx, roomID, targetUserID); err != nil {
+		return errcode.ErrDBError.WithMessage("踢出成员失败")
+	}
+
+	return nil
+}
+
+// UpdateMemberRole 设置成员角色（仅房主可操作）
+// 对应前端 roomService.setParticipantRole -> PUT /rooms/:id/participants/:userId/role
+// role: 1=房主, 2=管理员, 3=普通用户
+func (s *RoomService) UpdateMemberRole(ctx context.Context, callerID, roomID, targetUserID uint64, req *dto.UpdateMemberRoleRequest) error {
+	// 查询房间
+	_, err := s.roomRepo.FindByID(ctx, roomID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errcode.ErrRoomNotFound
+		}
+		return errcode.ErrDBError.WithMessage("查询房间失败")
+	}
+
+	// 校验调用者为房主
+	caller, err := s.participantRepo.FindByRoomAndUser(ctx, roomID, callerID)
+	if err != nil {
+		return errcode.ErrNotInRoom
+	}
+	if caller.Role != 1 {
+		return errcode.ErrForbidden.WithMessage("只有房主才能设置成员角色")
+	}
+
+	// 不能修改自己的角色
+	if callerID == targetUserID {
+		return errcode.ErrBadRequest.WithMessage("不能修改自己的角色")
+	}
+
+	// 校验目标用户在房间中
+	target, err := s.participantRepo.FindByRoomAndUser(ctx, roomID, targetUserID)
+	if err != nil {
+		return errcode.ErrNotInRoom.WithMessage("目标用户不在房间中")
+	}
+
+	// 不能将成员提升为房主（房主转移应通过专门流程）
+	if req.Role == 1 {
+		return errcode.ErrBadRequest.WithMessage("不能将成员设置为房主")
+	}
+
+	target.Role = req.Role
+	if err = s.participantRepo.Update(ctx, target); err != nil {
+		return errcode.ErrDBError.WithMessage("更新成员角色失败")
+	}
+
+	return nil
+}

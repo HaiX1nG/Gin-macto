@@ -257,6 +257,25 @@ func (s *PlaylistService) Skip(ctx context.Context, roomID, userID uint64) (*dto
 	return s.Play(ctx, roomID, userID)
 }
 
+// Reorder 调整播放列表顺序
+// 按 req.ItemIDs 的数组顺序重置各播放项的 play_order
+func (s *PlaylistService) Reorder(ctx context.Context, roomID, userID uint64, req *dto.ReorderPlaylistRequest) error {
+	// 检查房间类型是否支持播放列表
+	if err := s.checkRoomType(ctx, roomID); err != nil {
+		return err
+	}
+	// 检查用户是否在房间中
+	if err := s.checkUserInRoom(ctx, roomID, userID); err != nil {
+		return err
+	}
+
+	if err := s.playlistRepo.Reorder(ctx, roomID, req.ItemIDs); err != nil {
+		return errcode.ErrDBError.WithMessage("重排序播放列表失败")
+	}
+
+	return nil
+}
+
 // ChatService 聊天服务
 type ChatService struct {
 	msgRepo         *repository.ChatMessageRepository
@@ -449,4 +468,96 @@ func (s *ChatService) SearchMessages(ctx context.Context, req *dto.SearchMessage
 		Messages: responses,
 		Total:    total,
 	}, nil
+}
+
+// UpdateMessage 编辑消息
+// 仅消息发送者本人可编辑，编辑内容会进行 XSS 过滤
+func (s *ChatService) UpdateMessage(ctx context.Context, roomID, userID, messageID uint64, req *dto.UpdateMessageRequest) (*dto.MessageResponse, error) {
+	// 检查用户是否在房间中
+	inRoom, err := s.participantRepo.ExistsActive(ctx, roomID, userID)
+	if err != nil {
+		return nil, errcode.ErrDBError.WithMessage("检查参与者状态失败")
+	}
+	if !inRoom {
+		return nil, errcode.ErrNotInRoom
+	}
+
+	// 查询消息
+	msg, err := s.msgRepo.FindByID(ctx, messageID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errcode.ErrNotFound.WithMessage("消息不存在")
+		}
+		return nil, errcode.ErrDBError.WithMessage("查询消息失败")
+	}
+
+	// 校验消息归属房间
+	if msg.RoomID != roomID {
+		return nil, errcode.ErrNotFound.WithMessage("消息不存在")
+	}
+
+	// 仅发送者可编辑
+	if msg.SenderUserID != userID {
+		return nil, errcode.ErrForbidden.WithMessage("只能编辑自己的消息")
+	}
+
+	// XSS过滤
+	content := util.TrimAndEscape(req.Content)
+	if err = s.msgRepo.UpdateContent(ctx, messageID, content); err != nil {
+		return nil, errcode.ErrDBError.WithMessage("更新消息失败")
+	}
+
+	// 获取发送者信息
+	user, err := s.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		return nil, errcode.ErrDBError.WithMessage("查询用户失败")
+	}
+
+	return &dto.MessageResponse{
+		ID:           msg.ID,
+		RoomID:       msg.RoomID,
+		SenderUserID: msg.SenderUserID,
+		SenderName:   user.Username,
+		MessageType:  msg.MessageType,
+		Content:      content,
+		CreatedAt:    msg.CreatedAt.Format("2006-01-02 15:04:05"),
+	}, nil
+}
+
+// DeleteMessage 删除消息
+// 仅消息发送者本人可删除
+func (s *ChatService) DeleteMessage(ctx context.Context, roomID, userID, messageID uint64) error {
+	// 检查用户是否在房间中
+	inRoom, err := s.participantRepo.ExistsActive(ctx, roomID, userID)
+	if err != nil {
+		return errcode.ErrDBError.WithMessage("检查参与者状态失败")
+	}
+	if !inRoom {
+		return errcode.ErrNotInRoom
+	}
+
+	// 查询消息
+	msg, err := s.msgRepo.FindByID(ctx, messageID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errcode.ErrNotFound.WithMessage("消息不存在")
+		}
+		return errcode.ErrDBError.WithMessage("查询消息失败")
+	}
+
+	// 校验消息归属房间
+	if msg.RoomID != roomID {
+		return errcode.ErrNotFound.WithMessage("消息不存在")
+	}
+
+	// 仅发送者可删除
+	if msg.SenderUserID != userID {
+		return errcode.ErrForbidden.WithMessage("只能删除自己的消息")
+	}
+
+	if err = s.msgRepo.Delete(ctx, messageID); err != nil {
+		return errcode.ErrDBError.WithMessage("删除消息失败")
+	}
+
+	return nil
 }

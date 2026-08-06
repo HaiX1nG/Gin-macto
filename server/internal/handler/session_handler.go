@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/yourorg/livemix/internal/dto"
 	"github.com/yourorg/livemix/internal/service"
 	"github.com/yourorg/livemix/pkg/errcode"
 	"github.com/yourorg/livemix/pkg/response"
@@ -166,6 +167,33 @@ func (h *VoiceHandler) SetMute(c *gin.Context) {
 	}
 
 	if err = h.voiceService.SetMute(c.Request.Context(), roomID, userID, req.Muted); err != nil {
+		response.Fail(c, err)
+		return
+	}
+
+	response.Success(c, nil)
+}
+
+// SendSignal 发送 WebRTC 信令（REST 备用通道）
+// POST /api/v1/rooms/:id/webrtc/signal  对应前端 webrtcService.sendSignal
+// 实时信令主要通过 WebSocket 传输，此 REST 端点为备用通道
+func (h *VoiceHandler) SendSignal(c *gin.Context) {
+	roomIDStr := c.Param("id")
+	roomID, err := strconv.ParseUint(roomIDStr, 10, 64)
+	if err != nil {
+		response.Fail(c, errcode.ErrInvalidParam)
+		return
+	}
+
+	userID := c.GetUint64("userID")
+
+	var req dto.WebRTCSignalRequest
+	if err = c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(c, errcode.ErrInvalidParam, "参数校验失败: "+err.Error())
+		return
+	}
+
+	if err = h.voiceService.SendSignal(c.Request.Context(), roomID, userID, &req); err != nil {
 		response.Fail(c, err)
 		return
 	}

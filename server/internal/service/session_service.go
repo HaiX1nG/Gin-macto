@@ -289,3 +289,35 @@ func (s *VoiceService) SetMute(ctx context.Context, roomID, userID uint64, muted
 
 	return nil
 }
+
+// SendSignal 发送 WebRTC 信令（REST 备用通道）
+// 实时信令主要通过 WebSocket 传输（见 ws/handler.go 的 webrtc_signal 分支），此 REST 端点为备用通道
+// 校验房间存在性与用户在房状态后返回成功，实际信令转发由 WebSocket 层完成
+func (s *VoiceService) SendSignal(ctx context.Context, roomID, userID uint64, req *dto.WebRTCSignalRequest) error {
+	// 检查房间是否存在
+	_, err := s.roomRepo.FindByID(ctx, roomID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errcode.ErrRoomNotFound
+		}
+		return errcode.ErrDBError.WithMessage("查询房间失败")
+	}
+
+	// 检查用户是否在房间中
+	inRoom, err := s.participantRepo.ExistsActive(ctx, roomID, userID)
+	if err != nil {
+		return errcode.ErrDBError.WithMessage("检查参与者状态失败")
+	}
+	if !inRoom {
+		return errcode.ErrNotInRoom
+	}
+
+	// 校验信令类型
+	signalType := req.Type
+	if signalType != "offer" && signalType != "answer" && signalType != "ice-candidate" {
+		return errcode.ErrInvalidParam.WithMessage("无效的信令类型")
+	}
+
+	// 实时信令转发由 WebSocket 层处理，REST 端点仅作校验与备用
+	return nil
+}

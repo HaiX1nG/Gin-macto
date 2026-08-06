@@ -45,6 +45,13 @@ type RoomListRequest struct {
 	RoomType int8 `form:"roomType" binding:"omitempty,min=1,max=2"`
 }
 
+// UpdateMemberRoleRequest 设置成员角色请求
+// 对应前端 roomService.setParticipantRole(roomId, userId, role)
+// role: 1=房主, 2=管理员, 3=普通用户
+type UpdateMemberRoleRequest struct {
+	Role int8 `json:"role" binding:"required,min=1,max=3"`
+}
+
 // OnlineCountResponse 房间在线人数响应
 type OnlineCountResponse struct {
 	RoomID      uint64 `json:"roomId"`

@@ -16,6 +16,7 @@ func SetupRouter(
 	screenShareHandler *handler.ScreenShareHandler,
 	voiceHandler *handler.VoiceHandler,
 	friendHandler *handler.FriendHandler,
+	uploadHandler *handler.UploadHandler,
 	wsHandler *ws.Handler,
 ) *gin.Engine {
 	r := gin.New()
@@ -59,7 +60,9 @@ func SetupRouter(
 	roomGroup := v1.Group("/rooms")
 	{
 		// 公开接口
+		// 注意：/public 必须注册在 /:id 之前，Gin 中静态路由优先于参数路由匹配
 		roomGroup.GET("", roomHandler.GetRoomList)
+		roomGroup.GET("/public", roomHandler.GetPublicRooms)
 		roomGroup.GET("/:id", roomHandler.GetRoomInfo)
 		roomGroup.GET("/:id/participants", roomHandler.GetRoomParticipants)
 		roomGroup.GET("/:id/online/count", roomHandler.GetOnlineCount)
@@ -69,12 +72,15 @@ func SetupRouter(
 		roomGroup.POST("", middleware.JWTAuth(), roomHandler.CreateRoom)
 		roomGroup.POST("/join/:id", middleware.JWTAuth(), roomHandler.JoinRoom)
 		roomGroup.POST("/leave/:id", middleware.JWTAuth(), roomHandler.LeaveRoom)
+		roomGroup.POST("/:id/kick/:userId", middleware.JWTAuth(), roomHandler.KickMember)
+		roomGroup.PUT("/:id/participants/:userId/role", middleware.JWTAuth(), roomHandler.UpdateMemberRole)
 		roomGroup.DELETE("/:id", middleware.JWTAuth(), roomHandler.DeleteRoom)
 	}
 
 	// 用户状态查询（需要鉴权）
 	v1.GET("/users/:id/status", middleware.JWTAuth(), roomHandler.GetUserStatus)
 	v1.GET("/users/:id/online", middleware.JWTAuth(), authHandler.GetUserOnlineStatus)
+	v1.GET("/users/:id/info", middleware.JWTAuth(), authHandler.GetUserInfoByID)
 
 	// 播放列表相关（需要鉴权）
 	playlistGroup := v1.Group("/rooms/:id/playlist")
@@ -86,6 +92,7 @@ func SetupRouter(
 		playlistGroup.POST("/play", playlistHandler.Play)
 		playlistGroup.POST("/pause", playlistHandler.Pause)
 		playlistGroup.POST("/skip", playlistHandler.Skip)
+		playlistGroup.POST("/reorder", playlistHandler.Reorder)
 	}
 
 	// 聊天相关（需要鉴权）
@@ -94,6 +101,8 @@ func SetupRouter(
 	{
 		chatGroup.GET("", chatHandler.GetMessages)
 		chatGroup.POST("", chatHandler.SendMessage)
+		chatGroup.PUT("/:messageId", chatHandler.UpdateMessage)
+		chatGroup.DELETE("/:messageId", chatHandler.DeleteMessage)
 	}
 
 	// 消息搜索（需要鉴权）
@@ -140,6 +149,12 @@ func SetupRouter(
 		friendGroup.GET("/:id/messages", friendHandler.GetPrivateMessages)
 		friendGroup.GET("/conversations", friendHandler.GetConversations)
 	}
+
+	// 文件上传（需要鉴权，multipart/form-data，字段 file）
+	v1.POST("/upload", middleware.JWTAuth(), uploadHandler.Upload)
+
+	// 静态文件服务：上传文件访问（上传服务返回的 url 指向此目录）
+	r.Static("/uploads", "./uploads")
 
 	// WebSocket
 	r.GET("/ws", wsHandler.HandleWebSocket)

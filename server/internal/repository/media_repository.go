@@ -93,6 +93,23 @@ func (r *PlaylistRepository) GetMaxOrder(ctx context.Context, roomID uint64) (ui
 	return maxOrder, err
 }
 
+// Reorder 按传入的 itemIDs 顺序重置播放项的 play_order
+// 数组下标+1 作为新的 play_order，仅更新属于该房间的播放项
+func (r *PlaylistRepository) Reorder(ctx context.Context, roomID uint64, itemIDs []uint64) error {
+	if len(itemIDs) == 0 {
+		return nil
+	}
+	for order, itemID := range itemIDs {
+		if err := r.db.WithContext(ctx).
+			Model(&model.PlaylistItem{}).
+			Where("id = ? AND room_id = ?", itemID, roomID).
+			Update("play_order", uint32(order+1)).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ChatMessageRepository 聊天消息仓储
 type ChatMessageRepository struct {
 	db *gorm.DB
@@ -244,4 +261,27 @@ func (r *ChatMessageRepository) SearchMessages(ctx context.Context, query string
 		Find(&messages).Error
 
 	return messages, total, err
+}
+
+// FindByID 根据消息ID查询消息
+func (r *ChatMessageRepository) FindByID(ctx context.Context, messageID uint64) (*model.ChatMessage, error) {
+	var msg model.ChatMessage
+	err := r.db.WithContext(ctx).Where("id = ?", messageID).First(&msg).Error
+	if err != nil {
+		return nil, err
+	}
+	return &msg, nil
+}
+
+// UpdateContent 更新消息内容（仅更新 content 列，不依赖 updated_at 列）
+func (r *ChatMessageRepository) UpdateContent(ctx context.Context, messageID uint64, content string) error {
+	return r.db.WithContext(ctx).
+		Model(&model.ChatMessage{}).
+		Where("id = ?", messageID).
+		Update("content", content).Error
+}
+
+// Delete 删除消息
+func (r *ChatMessageRepository) Delete(ctx context.Context, messageID uint64) error {
+	return r.db.WithContext(ctx).Delete(&model.ChatMessage{}, messageID).Error
 }

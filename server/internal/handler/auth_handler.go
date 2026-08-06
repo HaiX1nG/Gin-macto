@@ -201,6 +201,26 @@ func (h *AuthHandler) GetUserOnlineStatus(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// GetUserInfoByID 按 ID 查询用户公开信息
+// GET /api/v1/users/:id/info  对应前端 roomService.getMemberInfo
+// 复用 userService.GetUserInfo，返回 UserInfoResponse（不含密码等敏感字段）
+func (h *AuthHandler) GetUserInfoByID(c *gin.Context) {
+	userIDStr := c.Param("id")
+	userID, err := strconv.ParseUint(userIDStr, 10, 64)
+	if err != nil {
+		response.Fail(c, nil)
+		return
+	}
+
+	resp, err := h.userService.GetUserInfo(c.Request.Context(), userID)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+
+	response.Success(c, resp)
+}
+
 // DeleteAccount 删除账户
 // 删除账户后，将当前Token加入黑名单，使其立即失效
 func (h *AuthHandler) DeleteAccount(c *gin.Context) {

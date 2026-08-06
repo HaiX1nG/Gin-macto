@@ -34,6 +34,12 @@ const (
 	EventUserOffline        EventType = "user_offline"
 	// EventHeartbeat 心跳事件，客户端可发送此事件更新活跃时间
 	EventHeartbeat EventType = "heartbeat"
+	// EventTyping 输入状态事件（C->S / S->C），对应前端 sendTyping / ws.on('typing')
+	EventTyping EventType = "typing"
+	// EventPing 应用层心跳请求（C->S）
+	EventPing EventType = "ping"
+	// EventPong 应用层心跳响应（S->C）
+	EventPong EventType = "pong"
 )
 
 // Hub 相关常量

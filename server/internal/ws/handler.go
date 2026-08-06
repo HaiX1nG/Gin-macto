@@ -288,6 +288,27 @@ func (c *Client) handleEvent(event Event) {
 			"userId":   c.UserID,
 			"username": c.Username,
 		}, c.ID)
+
+	case EventTyping:
+		// 输入状态（前端 sendTyping 发送 { type:'typing', payload:{ roomId, isTyping } }）
+		// 广播给房间其他成员（不含发送者），payload 中补充 userId/username 供对端展示
+		data, ok := event.Data.(map[string]any)
+		if !ok {
+			return
+		}
+		isTyping, _ := data["isTyping"].(bool)
+		c.Hub.BroadcastExcept(c.RoomID, EventTyping, map[string]any{
+			"roomId":   c.RoomID,
+			"userId":   c.UserID,
+			"username": c.Username,
+			"isTyping": isTyping,
+		}, c.ID)
+
+	case EventPing:
+		// 应用层心跳：回送 pong 给发送者
+		c.Hub.SendToUser(c.RoomID, c.UserID, EventPong, map[string]any{
+			"timestamp": time.Now().Unix(),
+		})
 	}
 }
 

@@ -151,6 +151,32 @@ func (h *PlaylistHandler) Skip(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// Reorder 重排序播放列表
+// POST /api/v1/rooms/:id/playlist/reorder  对应前端 playlistService.reorder
+func (h *PlaylistHandler) Reorder(c *gin.Context) {
+	roomIDStr := c.Param("id")
+	roomID, err := strconv.ParseUint(roomIDStr, 10, 64)
+	if err != nil {
+		response.Fail(c, errcode.ErrInvalidParam)
+		return
+	}
+
+	userID := c.GetUint64("userID")
+
+	var req dto.ReorderPlaylistRequest
+	if err = c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(c, errcode.ErrInvalidParam, "参数校验失败: "+err.Error())
+		return
+	}
+
+	if err = h.playlistService.Reorder(c.Request.Context(), roomID, userID, &req); err != nil {
+		response.Fail(c, err)
+		return
+	}
+
+	response.Success(c, nil)
+}
+
 // ChatHandler 聊天处理器
 type ChatHandler struct {
 	chatService *service.ChatService
@@ -256,4 +282,65 @@ func (h *ChatHandler) SearchMessages(c *gin.Context) {
 	}
 
 	response.Success(c, resp)
+}
+
+// UpdateMessage 编辑消息
+// PUT /api/v1/rooms/:id/messages/:messageId  对应前端 chatService.updateMessage
+func (h *ChatHandler) UpdateMessage(c *gin.Context) {
+	roomIDStr := c.Param("id")
+	roomID, err := strconv.ParseUint(roomIDStr, 10, 64)
+	if err != nil {
+		response.Fail(c, errcode.ErrInvalidParam)
+		return
+	}
+
+	messageIDStr := c.Param("messageId")
+	messageID, err := strconv.ParseUint(messageIDStr, 10, 64)
+	if err != nil {
+		response.Fail(c, errcode.ErrInvalidParam)
+		return
+	}
+
+	userID := c.GetUint64("userID")
+
+	var req dto.UpdateMessageRequest
+	if err = c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(c, errcode.ErrInvalidParam, "参数校验失败: "+err.Error())
+		return
+	}
+
+	resp, err := h.chatService.UpdateMessage(c.Request.Context(), roomID, userID, messageID, &req)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+
+	response.Success(c, resp)
+}
+
+// DeleteMessage 删除消息
+// DELETE /api/v1/rooms/:id/messages/:messageId  对应前端 chatService.deleteMessage
+func (h *ChatHandler) DeleteMessage(c *gin.Context) {
+	roomIDStr := c.Param("id")
+	roomID, err := strconv.ParseUint(roomIDStr, 10, 64)
+	if err != nil {
+		response.Fail(c, errcode.ErrInvalidParam)
+		return
+	}
+
+	messageIDStr := c.Param("messageId")
+	messageID, err := strconv.ParseUint(messageIDStr, 10, 64)
+	if err != nil {
+		response.Fail(c, errcode.ErrInvalidParam)
+		return
+	}
+
+	userID := c.GetUint64("userID")
+
+	if err = h.chatService.DeleteMessage(c.Request.Context(), roomID, userID, messageID); err != nil {
+		response.Fail(c, err)
+		return
+	}
+
+	response.Success(c, nil)
 }

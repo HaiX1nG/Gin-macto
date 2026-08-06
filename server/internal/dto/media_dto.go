@@ -25,6 +25,12 @@ type ReorderPlaylistRequest struct {
 	ItemIDs []uint64 `json:"itemIds" binding:"required,min=1"`
 }
 
+// UpdateMessageRequest 编辑消息请求
+// 对应前端 chatService.updateMessage(roomId, messageId, content)
+type UpdateMessageRequest struct {
+	Content string `json:"content" binding:"required,min=1,max=2000"`
+}
+
 // SendMessageRequest 发送消息请求
 type SendMessageRequest struct {
 	MessageType int8   `json:"messageType" binding:"required,min=1,max=3"`

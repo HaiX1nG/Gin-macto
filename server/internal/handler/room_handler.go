@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/yourorg/livemix/internal/dto"
 	"github.com/yourorg/livemix/internal/service"
+	"github.com/yourorg/livemix/pkg/errcode"
 	"github.com/yourorg/livemix/pkg/response"
 )
 
@@ -198,6 +199,84 @@ func (h *RoomHandler) DeleteRoom(c *gin.Context) {
 	}
 
 	if err := h.roomService.DeleteRoom(c.Request.Context(), userID, roomID); err != nil {
+		response.Fail(c, err)
+		return
+	}
+
+	response.Success(c, nil)
+}
+
+// GetPublicRooms 获取公开房间列表
+// GET /api/v1/rooms/public  对应前端 roomService.getPublicRooms
+func (h *RoomHandler) GetPublicRooms(c *gin.Context) {
+	var req dto.RoomListRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.FailWithMessage(c, errcode.ErrInvalidParam, "参数校验失败: "+err.Error())
+		return
+	}
+
+	resp, total, err := h.roomService.GetPublicRooms(c.Request.Context(), &req)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+
+	response.Page(c, resp, total, req.Page, req.PageSize)
+}
+
+// KickMember 踢出房间成员
+// POST /api/v1/rooms/:id/kick/:userId  对应前端 roomService.kickParticipant
+func (h *RoomHandler) KickMember(c *gin.Context) {
+	userID := c.GetUint64("userID")
+
+	roomIDStr := c.Param("id")
+	roomID, err := strconv.ParseUint(roomIDStr, 10, 64)
+	if err != nil {
+		response.Fail(c, errcode.ErrInvalidParam)
+		return
+	}
+
+	targetUserIDStr := c.Param("userId")
+	targetUserID, err := strconv.ParseUint(targetUserIDStr, 10, 64)
+	if err != nil {
+		response.Fail(c, errcode.ErrInvalidParam)
+		return
+	}
+
+	if err = h.roomService.KickMember(c.Request.Context(), userID, roomID, targetUserID); err != nil {
+		response.Fail(c, err)
+		return
+	}
+
+	response.Success(c, nil)
+}
+
+// UpdateMemberRole 设置成员角色
+// PUT /api/v1/rooms/:id/participants/:userId/role  对应前端 roomService.setParticipantRole
+func (h *RoomHandler) UpdateMemberRole(c *gin.Context) {
+	userID := c.GetUint64("userID")
+
+	roomIDStr := c.Param("id")
+	roomID, err := strconv.ParseUint(roomIDStr, 10, 64)
+	if err != nil {
+		response.Fail(c, errcode.ErrInvalidParam)
+		return
+	}
+
+	targetUserIDStr := c.Param("userId")
+	targetUserID, err := strconv.ParseUint(targetUserIDStr, 10, 64)
+	if err != nil {
+		response.Fail(c, errcode.ErrInvalidParam)
+		return
+	}
+
+	var req dto.UpdateMemberRoleRequest
+	if err = c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(c, errcode.ErrInvalidParam, "参数校验失败: "+err.Error())
+		return
+	}
+
+	if err = h.roomService.UpdateMemberRole(c.Request.Context(), userID, roomID, targetUserID, &req); err != nil {
 		response.Fail(c, err)
 		return
 	}
