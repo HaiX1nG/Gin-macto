@@ -3,6 +3,7 @@ package response
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/yourorg/livemix/pkg/errcode"
@@ -114,8 +115,16 @@ func FailWithMessage(c *gin.Context, err error, message string) {
 		})
 		return
 	}
-	c.JSON(http.StatusInternalServerError, Response{
-		Code:    errcode.ErrInternalServer.Code,
+	// 非 errcode.Error 类型的错误：参数校验失败（如 JSON 解析错误）返回 400，
+	// 其余未知错误返回 500。避免 ShouldBindJSON 的 json.SyntaxError 被误报为 500。
+	httpStatus := http.StatusInternalServerError
+	code := errcode.ErrInternalServer.Code
+	if strings.HasPrefix(message, "参数校验失败") {
+		httpStatus = http.StatusBadRequest
+		code = errcode.ErrInvalidParam.Code
+	}
+	c.JSON(httpStatus, Response{
+		Code:    code,
 		Message: message,
 		Data:    nil,
 	})
