@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/yourorg/livemix/internal/service"
 )
 
@@ -13,33 +14,45 @@ import (
 type EventType string
 
 const (
-	EventVoiceJoin          EventType = "voice_join"
-	EventVoiceLeave         EventType = "voice_leave"
-	EventMusicSync          EventType = "music_sync"
-	EventScreenShareStart   EventType = "screen_share_start"
-	EventScreenShareStop    EventType = "screen_share_stop"
-	EventScreenShareStarted EventType = "screen_share_started"
-	EventScreenShareStopped EventType = "screen_share_stopped"
-	EventAudioShareStart    EventType = "audio_share_start"
-	EventAudioShareStop     EventType = "audio_share_stop"
-	EventAudioShareStarted  EventType = "audio_share_started"
-	EventAudioShareStopped  EventType = "audio_share_stopped"
-	EventChatMessage        EventType = "chat_message"
-	EventParticipantUpdate  EventType = "participant_update"
-	EventWebRTCOffer        EventType = "webrtc_offer"
-	EventWebRTCAnswer       EventType = "webrtc_answer"
-	EventWebRTCIceCandidate EventType = "webrtc_ice_candidate"
-	EventWebRTCSignal       EventType = "webrtc_signal"
-	EventUserOnline         EventType = "user_online"
-	EventUserOffline        EventType = "user_offline"
-	// EventHeartbeat 心跳事件，客户端可发送此事件更新活跃时间
+	// 频道订阅
+	EventJoinChannel  EventType = "join_channel"
+	EventLeaveChannel EventType = "leave_channel"
+
+	// 聊天
+	EventChatMessage    EventType = "chat_message"
+	EventMessageDelete  EventType = "message_delete"
+	EventMessageUpdate  EventType = "message_update"
+	EventReactionAdd    EventType = "reaction_add"
+	EventReactionRemove EventType = "reaction_remove"
+	EventTyping         EventType = "typing"
+
+	// 语音
+	EventVoiceJoin        EventType = "voice_join"
+	EventVoiceLeave       EventType = "voice_leave"
+	EventVoiceUserJoined  EventType = "voice_user_joined"
+	EventVoiceUserLeft    EventType = "voice_user_left"
+	EventVoiceStateUpdate EventType = "voice_state_update"
+
+	// 屏幕共享
+	EventScreenShareStart EventType = "screen_share_start"
+	EventScreenShareStop  EventType = "screen_share_stop"
+
+	// WebRTC
+	EventWebRTCSignal EventType = "webrtc_signal"
+
+	// 成员
+	EventMemberJoined      EventType = "member_joined"
+	EventMemberLeft        EventType = "member_left"
+	EventParticipantUpdate EventType = "participant_update"
+
+	// 用户状态
+	EventUserOnline  EventType = "user_online"
+	EventUserOffline EventType = "user_offline"
+
+	// 心跳
 	EventHeartbeat EventType = "heartbeat"
-	// EventTyping 输入状态事件（C->S / S->C），对应前端 sendTyping / ws.on('typing')
-	EventTyping EventType = "typing"
-	// EventPing 应用层心跳请求（C->S）
-	EventPing EventType = "ping"
-	// EventPong 应用层心跳响应（S->C）
-	EventPong EventType = "pong"
+	EventPing      EventType = "ping"
+	EventPong      EventType = "pong"
 )
 
 // Hub 相关常量
@@ -64,15 +77,18 @@ type Event struct {
 }
 
 // Client WebSocket客户端
+// per-app 单例连接，不绑定任何频道。通过 join_channel/leave_channel 订阅多个频道。
 type Client struct {
 	ID       string
 	UserID   uint64
 	Username string
-	RoomID   uint64
-	Conn     any // 实际类型为 *websocket.Conn
-	Send     chan []byte
-	Hub      *Hub
-	mu       sync.Mutex
+	// Channels 该客户端订阅的频道集合
+	Channels map[uint64]bool
+	// Conn WebSocket连接（强类型）
+	Conn *websocket.Conn
+	Send chan []byte
+	Hub  *Hub
+	mu   sync.Mutex
 	// lastActiveTime 最后活跃时间，用于心跳检测
 	// 每次收到客户端消息或Pong响应时更新
 	lastActiveTime time.Time
@@ -94,21 +110,21 @@ func (c *Client) GetLastActiveTime() time.Time {
 	return c.lastActiveTime
 }
 
-// Hub WebSocket Hub，管理所有房间和连接
+// Hub WebSocket Hub，管理所有频道订阅和连接
 type Hub struct {
-	rooms       map[uint64]*Room
-	clients     map[string]*Client
-	register    chan *Client
-	unregister  chan *Client
-	broadcast   chan *BroadcastMessage
-	userService *service.UserService
-	mu          sync.RWMutex
+	channels     map[uint64]*ChannelGroup
+	clients      map[string]*Client
+	register     chan *Client
+	unregister   chan *Client
+	broadcast    chan *BroadcastMessage
+	userService  *service.UserService
+	mu           sync.RWMutex
 	// heartbeatTimeout 心跳超时时间，超过此时间未收到客户端响应则断开连接
 	heartbeatTimeout time.Duration
 }
 
-// Room 房间
-type Room struct {
+// ChannelGroup 频道订阅组（替代旧的 Room 类型）
+type ChannelGroup struct {
 	ID      uint64
 	Clients map[string]*Client
 	mu      sync.RWMutex
@@ -116,10 +132,10 @@ type Room struct {
 
 // BroadcastMessage 广播消息
 type BroadcastMessage struct {
-	RoomID  uint64
-	Event   EventType
-	Data    any
-	Exclude string // 排除的客户端ID
+	ChannelID uint64
+	Event     EventType
+	Data      any
+	Exclude   string // 排除的客户端ID
 }
 
 // NewHub 创建Hub实例
@@ -132,7 +148,7 @@ func NewHub(userService *service.UserService, heartbeatTimeout time.Duration) *H
 	}
 
 	return &Hub{
-		rooms:            make(map[uint64]*Room),
+		channels:         make(map[uint64]*ChannelGroup),
 		clients:          make(map[string]*Client),
 		register:         make(chan *Client, RegisterChannelBuffer),
 		unregister:       make(chan *Client, UnregisterChannelBuffer),
@@ -156,7 +172,7 @@ func (h *Hub) Run() {
 			h.unregisterClient(client)
 
 		case msg := <-h.broadcast:
-			h.broadcastToRoom(msg)
+			h.broadcastToChannel(msg)
 
 		case <-ticker.C:
 			// 心跳检测
@@ -166,6 +182,8 @@ func (h *Hub) Run() {
 }
 
 // registerClient 注册客户端
+// 仅加入全局 clients map，不自动加入任何频道，不广播 participant_update
+// 客户端需主动发送 join_channel 事件订阅频道
 func (h *Hub) registerClient(client *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -173,33 +191,16 @@ func (h *Hub) registerClient(client *Client) {
 	// 添加到全局客户端列表
 	h.clients[client.ID] = client
 
-	// 添加到房间
-	room, exists := h.rooms[client.RoomID]
-	if !exists {
-		room = &Room{
-			ID:      client.RoomID,
-			Clients: make(map[string]*Client),
-		}
-		h.rooms[client.RoomID] = room
-	}
-
-	room.mu.Lock()
-	room.Clients[client.ID] = client
-	room.mu.Unlock()
-
 	// 设置用户在线状态
 	if h.userService != nil {
 		go h.userService.SetOnline(context.Background(), client.UserID)
 	}
-
-	// 广播用户加入事件
-	h.notifyParticipantUpdate(client.RoomID)
 }
 
 // unregisterClient 注销客户端
+// 从全局 clients 移除 + 从其订阅的所有 channels 移除
 func (h *Hub) unregisterClient(client *Client) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
 	// 从全局列表移除
 	delete(h.clients, client.ID)
@@ -209,28 +210,119 @@ func (h *Hub) unregisterClient(client *Client) {
 		go h.userService.SetOffline(context.Background(), client.UserID)
 	}
 
-	// 从房间移除
-	if room, exists := h.rooms[client.RoomID]; exists {
-		room.mu.Lock()
-		delete(room.Clients, client.ID)
-		room.mu.Unlock()
+	// 从客户端订阅的所有频道中移除
+	client.mu.Lock()
+	subscribedChannels := make([]uint64, 0, len(client.Channels))
+	for chID := range client.Channels {
+		subscribedChannels = append(subscribedChannels, chID)
+	}
+	client.mu.Unlock()
 
-		// 如果房间为空，删除房间
-		if len(room.Clients) == 0 {
-			delete(h.rooms, client.RoomID)
-		} else {
-			// 广播用户离开事件
-			h.notifyParticipantUpdate(client.RoomID)
+	for _, chID := range subscribedChannels {
+		if ch, exists := h.channels[chID]; exists {
+			ch.mu.Lock()
+			delete(ch.Clients, client.ID)
+			empty := len(ch.Clients) == 0
+			ch.mu.Unlock()
+
+			// 频道组为空则删除
+			if empty {
+				delete(h.channels, chID)
+			}
 		}
 	}
+
+	h.mu.Unlock()
 
 	close(client.Send)
 }
 
-// broadcastToRoom 向房间广播消息
-func (h *Hub) broadcastToRoom(msg *BroadcastMessage) {
+// JoinChannel 将客户端加入频道订阅
+// 若频道组不存在则创建
+func (h *Hub) JoinChannel(client *Client, channelID uint64) {
+	h.mu.Lock()
+
+	// 创建频道组（如不存在）
+	ch, exists := h.channels[channelID]
+	if !exists {
+		ch = &ChannelGroup{
+			ID:      channelID,
+			Clients: make(map[string]*Client),
+		}
+		h.channels[channelID] = ch
+	}
+	h.mu.Unlock()
+
+	// 加入频道组
+	ch.mu.Lock()
+	ch.Clients[client.ID] = client
+	ch.mu.Unlock()
+
+	// 记录客户端订阅
+	client.mu.Lock()
+	if client.Channels == nil {
+		client.Channels = make(map[uint64]bool)
+	}
+	client.Channels[channelID] = true
+	client.mu.Unlock()
+}
+
+// LeaveChannel 从频道订阅移除客户端
+// 频道组空则删除
+func (h *Hub) LeaveChannel(client *Client, channelID uint64) {
+	h.mu.Lock()
+
+	ch, exists := h.channels[channelID]
+	if !exists {
+		h.mu.Unlock()
+		// 频道组不存在，仅从客户端订阅记录中移除
+		client.mu.Lock()
+		delete(client.Channels, channelID)
+		client.mu.Unlock()
+		return
+	}
+
+	ch.mu.Lock()
+	delete(ch.Clients, client.ID)
+	empty := len(ch.Clients) == 0
+	ch.mu.Unlock()
+
+	// 频道组为空则删除
+	if empty {
+		delete(h.channels, channelID)
+	}
+
+	h.mu.Unlock()
+
+	// 从客户端订阅记录中移除
+	client.mu.Lock()
+	delete(client.Channels, channelID)
+	client.mu.Unlock()
+}
+
+// BroadcastToChannel 向频道所有订阅者广播消息
+func (h *Hub) BroadcastToChannel(channelID uint64, event EventType, data any) {
+	h.broadcast <- &BroadcastMessage{
+		ChannelID: channelID,
+		Event:     event,
+		Data:      data,
+	}
+}
+
+// BroadcastToChannelExcept 向频道所有订阅者广播消息（排除指定客户端）
+func (h *Hub) BroadcastToChannelExcept(channelID uint64, event EventType, data any, excludeClientID string) {
+	h.broadcast <- &BroadcastMessage{
+		ChannelID: channelID,
+		Event:     event,
+		Data:      data,
+		Exclude:   excludeClientID,
+	}
+}
+
+// broadcastToChannel 向频道广播消息（内部方法，通过 broadcast 通道调用）
+func (h *Hub) broadcastToChannel(msg *BroadcastMessage) {
 	h.mu.RLock()
-	room, exists := h.rooms[msg.RoomID]
+	ch, exists := h.channels[msg.ChannelID]
 	h.mu.RUnlock()
 
 	if !exists {
@@ -245,10 +337,10 @@ func (h *Hub) broadcastToRoom(msg *BroadcastMessage) {
 		return
 	}
 
-	room.mu.RLock()
-	defer room.mu.RUnlock()
+	ch.mu.RLock()
+	defer ch.mu.RUnlock()
 
-	for id, client := range room.Clients {
+	for id, client := range ch.Clients {
 		if id == msg.Exclude {
 			continue
 		}
@@ -257,35 +349,97 @@ func (h *Hub) broadcastToRoom(msg *BroadcastMessage) {
 		default:
 			// 发送失败，关闭连接
 			close(client.Send)
-			delete(room.Clients, id)
+			delete(ch.Clients, id)
 		}
 	}
 }
 
-// notifyParticipantUpdate 通知参与者更新
-func (h *Hub) notifyParticipantUpdate(roomID uint64) {
-	room, exists := h.rooms[roomID]
+// notifyVoiceParticipants 通知语音频道订阅者参与者列表更新
+// 仅语音频道用，由 handler 在 voice_join/voice_leave 时调用
+func (h *Hub) notifyVoiceParticipants(channelID uint64) {
+	h.mu.RLock()
+	ch, exists := h.channels[channelID]
+	h.mu.RUnlock()
+
 	if !exists {
 		return
 	}
 
-	room.mu.RLock()
-	participants := make([]map[string]any, 0, len(room.Clients))
-	for _, client := range room.Clients {
+	ch.mu.RLock()
+	participants := make([]map[string]any, 0, len(ch.Clients))
+	for _, client := range ch.Clients {
 		participants = append(participants, map[string]any{
 			"userId":   client.UserID,
 			"username": client.Username,
 		})
 	}
-	room.mu.RUnlock()
+	ch.mu.RUnlock()
 
 	h.broadcast <- &BroadcastMessage{
-		RoomID: roomID,
-		Event:  EventParticipantUpdate,
+		ChannelID: channelID,
+		Event:     EventParticipantUpdate,
 		Data: map[string]any{
+			"channelId":    channelID,
 			"participants": participants,
 		},
 	}
+}
+
+// SendToUser 向用户发送消息（遍历所有该用户的连接，不绑频道）
+// 用户可能有多个连接，全部发送
+func (h *Hub) SendToUser(userID uint64, event EventType, data any) {
+	dataBytes, err := json.Marshal(Event{
+		Event: event,
+		Data:  data,
+	})
+	if err != nil {
+		return
+	}
+
+	h.mu.RLock()
+	for _, client := range h.clients {
+		if client.UserID == userID {
+			select {
+			case client.Send <- dataBytes:
+			default:
+				// 发送失败
+			}
+		}
+	}
+	h.mu.RUnlock()
+}
+
+// GetChannelClients 获取频道订阅者列表
+func (h *Hub) GetChannelClients(channelID uint64) []*Client {
+	h.mu.RLock()
+	ch, exists := h.channels[channelID]
+	h.mu.RUnlock()
+
+	if !exists {
+		return nil
+	}
+
+	ch.mu.RLock()
+	defer ch.mu.RUnlock()
+
+	clients := make([]*Client, 0, len(ch.Clients))
+	for _, client := range ch.Clients {
+		clients = append(clients, client)
+	}
+	return clients
+}
+
+// GetClientByUserID 按 userID 查找客户端（取第一个连接）
+func (h *Hub) GetClientByUserID(userID uint64) *Client {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for _, client := range h.clients {
+		if client.UserID == userID {
+			return client
+		}
+	}
+	return nil
 }
 
 // checkHeartbeat 检查心跳，清理超时连接
@@ -339,66 +493,6 @@ func (h *Hub) checkHeartbeat() {
 	}
 }
 
-// Broadcast 广播消息
-func (h *Hub) Broadcast(roomID uint64, event EventType, data any) {
-	h.broadcast <- &BroadcastMessage{
-		RoomID: roomID,
-		Event:  event,
-		Data:   data,
-	}
-}
-
-// BroadcastExcept 广播消息（排除指定客户端）
-func (h *Hub) BroadcastExcept(roomID uint64, event EventType, data any, excludeClientID string) {
-	h.broadcast <- &BroadcastMessage{
-		RoomID:  roomID,
-		Event:   event,
-		Data:    data,
-		Exclude: excludeClientID,
-	}
-}
-
-// GetRoomClients 获取房间客户端列表
-func (h *Hub) GetRoomClients(roomID uint64) []*Client {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	room, exists := h.rooms[roomID]
-	if !exists {
-		return nil
-	}
-
-	room.mu.RLock()
-	defer room.mu.RUnlock()
-
-	clients := make([]*Client, 0, len(room.Clients))
-	for _, client := range room.Clients {
-		clients = append(clients, client)
-	}
-	return clients
-}
-
-// GetClientByUserID 根据用户ID获取客户端
-func (h *Hub) GetClientByUserID(roomID, userID uint64) *Client {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	room, exists := h.rooms[roomID]
-	if !exists {
-		return nil
-	}
-
-	room.mu.RLock()
-	defer room.mu.RUnlock()
-
-	for _, client := range room.Clients {
-		if client.UserID == userID {
-			return client
-		}
-	}
-	return nil
-}
-
 // SendToClient 向特定客户端发送消息
 func (h *Hub) SendToClient(clientID string, event EventType, data any) {
 	h.mu.RLock()
@@ -406,28 +500,6 @@ func (h *Hub) SendToClient(clientID string, event EventType, data any) {
 	h.mu.RUnlock()
 
 	if !exists {
-		return
-	}
-
-	dataBytes, err := json.Marshal(Event{
-		Event: event,
-		Data:  data,
-	})
-	if err != nil {
-		return
-	}
-
-	select {
-	case client.Send <- dataBytes:
-	default:
-		// 发送失败
-	}
-}
-
-// SendToUser 向特定用户发送消息（在指定房间内）
-func (h *Hub) SendToUser(roomID, userID uint64, event EventType, data any) {
-	client := h.GetClientByUserID(roomID, userID)
-	if client == nil {
 		return
 	}
 

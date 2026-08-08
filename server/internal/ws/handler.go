@@ -51,12 +51,13 @@ func NewHandler(hub *Hub) *Handler {
 }
 
 // HandleWebSocket 处理WebSocket连接
+// per-app 单例连接，不要求 room_id 参数
+// 客户端连接后通过 join_channel/leave_channel 事件订阅频道
 func (h *Handler) HandleWebSocket(c *gin.Context) {
-	// 从查询参数获取token和roomID
+	// 从查询参数获取token
 	tokenString := c.Query("token")
-	roomIDStr := c.Query("room_id")
 
-	if tokenString == "" || roomIDStr == "" {
+	if tokenString == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": 40003, "message": "缺少认证信息"})
 		return
 	}
@@ -65,13 +66,6 @@ func (h *Handler) HandleWebSocket(c *gin.Context) {
 	claims, err := jwt.ParseAccessToken(tokenString)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": 40003, "message": "Token无效"})
-		return
-	}
-
-	// 解析房间ID
-	roomID, err := strconv.ParseUint(roomIDStr, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 40001, "message": "房间ID无效"})
 		return
 	}
 
@@ -86,12 +80,12 @@ func (h *Handler) HandleWebSocket(c *gin.Context) {
 		return
 	}
 
-	// 创建客户端
+	// 创建客户端（不绑定任何频道，Channels 初始为空）
 	client := &Client{
 		ID:             generateClientID(),
 		UserID:         claims.UserID,
 		Username:       claims.Username,
-		RoomID:         roomID,
+		Channels:       make(map[uint64]bool),
 		Conn:           conn,
 		Send:           make(chan []byte, 256),
 		Hub:            h.hub,
@@ -116,17 +110,16 @@ func (c *Client) readPump() {
 		c.Hub.unregister <- c
 	}()
 
-	conn := c.Conn.(*websocket.Conn)
-	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-	conn.SetPongHandler(func(string) error {
+	c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	c.Conn.SetPongHandler(func(string) error {
 		// 收到Pong响应，更新活跃时间并重置读超时
 		c.UpdateLastActiveTime()
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		return nil
 	})
 
 	for {
-		_, message, err := conn.ReadMessage()
+		_, message, err := c.Conn.ReadMessage()
 		if err != nil {
 			break
 		}
@@ -150,22 +143,19 @@ func (c *Client) writePump() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer func() {
 		ticker.Stop()
-		conn := c.Conn.(*websocket.Conn)
-		conn.Close()
+		c.Conn.Close()
 	}()
-
-	conn := c.Conn.(*websocket.Conn)
 
 	for {
 		select {
 		case message, ok := <-c.Send:
-			conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if !ok {
-				conn.WriteMessage(websocket.CloseMessage, []byte{})
+				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
 
-			w, err := conn.NextWriter(websocket.TextMessage)
+			w, err := c.Conn.NextWriter(websocket.TextMessage)
 			if err != nil {
 				return
 			}
@@ -183,8 +173,8 @@ func (c *Client) writePump() {
 			}
 
 		case <-ticker.C:
-			conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
 		}
@@ -200,16 +190,67 @@ func (c *Client) handleEvent(event Event) {
 		// 活跃时间已在readPump中更新，此处无需额外处理
 		// 客户端可发送空心跳事件保持连接活跃
 
+	case EventJoinChannel:
+		// 订阅频道
+		// data: { channelId: number }
+		data, ok := event.Data.(map[string]any)
+		if !ok {
+			return
+		}
+		channelID, ok := parseChannelID(data["channelId"])
+		if !ok {
+			return
+		}
+
+		c.Hub.JoinChannel(c, channelID)
+
+		// 广播 member_joined 到该频道（排除自己）
+		c.Hub.BroadcastToChannelExcept(channelID, EventMemberJoined, map[string]any{
+			"channelId": channelID,
+			"userId":    c.UserID,
+			"username":  c.Username,
+		}, c.ID)
+
+	case EventLeaveChannel:
+		// 取消订阅频道
+		// data: { channelId: number }
+		data, ok := event.Data.(map[string]any)
+		if !ok {
+			return
+		}
+		channelID, ok := parseChannelID(data["channelId"])
+		if !ok {
+			return
+		}
+
+		c.Hub.LeaveChannel(c, channelID)
+
+		// 广播 member_left 到该频道（排除自己）
+		c.Hub.BroadcastToChannelExcept(channelID, EventMemberLeft, map[string]any{
+			"channelId": channelID,
+			"userId":    c.UserID,
+		}, c.ID)
+
 	case EventChatMessage:
 		// XSS过滤：对聊天消息内容进行HTML转义
-		// event.Data 可能是 string 或 map[string]any
-		// 如果是map，需要递归过滤其中的字符串字段
 		sanitizedData := sanitizeEventData(event.Data)
-		c.Hub.Broadcast(c.RoomID, EventChatMessage, map[string]any{
-			"senderId":   c.UserID,
-			"senderName": c.Username,
-			"data":       sanitizedData,
-		})
+
+		// data 含 channelId，解析后定向广播到频道
+		data, ok := event.Data.(map[string]any)
+		if !ok {
+			return
+		}
+		channelID, ok := parseChannelID(data["channelId"])
+		if !ok {
+			return
+		}
+
+		c.Hub.BroadcastToChannelExcept(channelID, EventChatMessage, map[string]any{
+			"channelId":   channelID,
+			"senderId":    c.UserID,
+			"senderName":  c.Username,
+			"data":        sanitizedData,
+		}, c.ID)
 
 	case EventWebRTCSignal:
 		// 统一的WebRTC信令处理
@@ -233,80 +274,110 @@ func (c *Client) handleEvent(event Event) {
 			},
 		}
 
-		// 如果指定了目标用户，只发给该用户
+		// 如果指定了目标用户，全局发给该用户（不绑频道）
 		if targetID > 0 {
-			c.Hub.SendToUser(c.RoomID, uint64(targetID), EventWebRTCSignal, signalData)
-		} else {
-			// 广播给房间其他成员
-			c.Hub.BroadcastExcept(c.RoomID, EventWebRTCSignal, signalData, c.ID)
+			c.Hub.SendToUser(uint64(targetID), EventWebRTCSignal, signalData)
 		}
-
-	case EventWebRTCOffer, EventWebRTCAnswer, EventWebRTCIceCandidate:
-		// 兼容旧格式：WebRTC信令，广播给房间其他成员
-		c.Hub.BroadcastExcept(c.RoomID, event.Event, map[string]any{
-			"fromUserId":   c.UserID,
-			"fromUsername": c.Username,
-			"data":         event.Data,
-		}, c.ID)
+		// targetId <= 0 时跳过（前端始终应指定 targetId）
 
 	case EventVoiceJoin:
-		c.Hub.Broadcast(c.RoomID, EventVoiceJoin, map[string]any{
-			"userId":   c.UserID,
-			"username": c.Username,
-		})
-
-	case EventVoiceLeave:
-		c.Hub.Broadcast(c.RoomID, EventVoiceLeave, map[string]any{
-			"userId":   c.UserID,
-			"username": c.Username,
-		})
-
-	case EventScreenShareStart:
-		// 用户开始屏幕共享（前端发送）
-		c.Hub.BroadcastExcept(c.RoomID, EventScreenShareStarted, map[string]any{
-			"userId":   c.UserID,
-			"username": c.Username,
-		}, c.ID)
-
-	case EventScreenShareStop:
-		// 用户停止屏幕共享（前端发送）
-		c.Hub.BroadcastExcept(c.RoomID, EventScreenShareStopped, map[string]any{
-			"userId":   c.UserID,
-			"username": c.Username,
-		}, c.ID)
-
-	case EventAudioShareStart:
-		// 用户开始音频分享（前端发送）
-		c.Hub.BroadcastExcept(c.RoomID, EventAudioShareStarted, map[string]any{
-			"userId":   c.UserID,
-			"username": c.Username,
-		}, c.ID)
-
-	case EventAudioShareStop:
-		// 用户停止音频分享（前端发送）
-		c.Hub.BroadcastExcept(c.RoomID, EventAudioShareStopped, map[string]any{
-			"userId":   c.UserID,
-			"username": c.Username,
-		}, c.ID)
-
-	case EventTyping:
-		// 输入状态（前端 sendTyping 发送 { type:'typing', payload:{ roomId, isTyping } }）
-		// 广播给房间其他成员（不含发送者），payload 中补充 userId/username 供对端展示
+		// 加入语音频道
+		// data: { channelId: number }
 		data, ok := event.Data.(map[string]any)
 		if !ok {
 			return
 		}
+		channelID, ok := parseChannelID(data["channelId"])
+		if !ok {
+			return
+		}
+
+		// 广播 voice_user_joined 到该频道（排除自己）
+		c.Hub.BroadcastToChannelExcept(channelID, EventVoiceUserJoined, map[string]any{
+			"channelId": channelID,
+			"userId":    c.UserID,
+			"username":  c.Username,
+		}, c.ID)
+
+	case EventVoiceLeave:
+		// 离开语音频道
+		// data: { channelId: number }
+		data, ok := event.Data.(map[string]any)
+		if !ok {
+			return
+		}
+		channelID, ok := parseChannelID(data["channelId"])
+		if !ok {
+			return
+		}
+
+		// 广播 voice_user_left 到该频道（排除自己）
+		c.Hub.BroadcastToChannelExcept(channelID, EventVoiceUserLeft, map[string]any{
+			"channelId": channelID,
+			"userId":    c.UserID,
+		}, c.ID)
+
+	case EventTyping:
+		// 输入状态
+		// data: { channelId: number, isTyping: boolean }
+		data, ok := event.Data.(map[string]any)
+		if !ok {
+			return
+		}
+		channelID, ok := parseChannelID(data["channelId"])
+		if !ok {
+			return
+		}
 		isTyping, _ := data["isTyping"].(bool)
-		c.Hub.BroadcastExcept(c.RoomID, EventTyping, map[string]any{
-			"roomId":   c.RoomID,
-			"userId":   c.UserID,
-			"username": c.Username,
-			"isTyping": isTyping,
+
+		// 广播到频道（排除发送者）
+		c.Hub.BroadcastToChannelExcept(channelID, EventTyping, map[string]any{
+			"channelId": channelID,
+			"userId":    c.UserID,
+			"username":  c.Username,
+			"isTyping":  isTyping,
+		}, c.ID)
+
+	case EventScreenShareStart:
+		// 用户开始屏幕共享
+		// data: { channelId: number }
+		data, ok := event.Data.(map[string]any)
+		if !ok {
+			return
+		}
+		channelID, ok := parseChannelID(data["channelId"])
+		if !ok {
+			return
+		}
+
+		// 广播 screen_share_start 到频道（排除自己）
+		c.Hub.BroadcastToChannelExcept(channelID, EventScreenShareStart, map[string]any{
+			"channelId": channelID,
+			"userId":    c.UserID,
+			"username":  c.Username,
+		}, c.ID)
+
+	case EventScreenShareStop:
+		// 用户停止屏幕共享
+		// data: { channelId: number }
+		data, ok := event.Data.(map[string]any)
+		if !ok {
+			return
+		}
+		channelID, ok := parseChannelID(data["channelId"])
+		if !ok {
+			return
+		}
+
+		// 广播 screen_share_stop 到频道（排除自己）
+		c.Hub.BroadcastToChannelExcept(channelID, EventScreenShareStop, map[string]any{
+			"channelId": channelID,
+			"userId":    c.UserID,
 		}, c.ID)
 
 	case EventPing:
 		// 应用层心跳：回送 pong 给发送者
-		c.Hub.SendToUser(c.RoomID, c.UserID, EventPong, map[string]any{
+		c.Hub.SendToUser(c.UserID, EventPong, map[string]any{
 			"timestamp": time.Now().Unix(),
 		})
 	}
@@ -315,6 +386,23 @@ func (c *Client) handleEvent(event Event) {
 // generateClientID 生成客户端ID
 func generateClientID() string {
 	return strconv.FormatInt(time.Now().UnixNano(), 36)
+}
+
+// parseChannelID 从 any 值解析频道ID
+// JSON数字默认解析为 float64，需要安全转换
+func parseChannelID(v any) (uint64, bool) {
+	switch val := v.(type) {
+	case float64:
+		return uint64(val), true
+	case int:
+		return uint64(val), true
+	case int64:
+		return uint64(val), true
+	case uint64:
+		return val, true
+	default:
+		return 0, false
+	}
 }
 
 // sanitizeEventData 对事件数据进行XSS过滤
