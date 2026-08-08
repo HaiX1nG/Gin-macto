@@ -96,6 +96,8 @@ func (s *UserService) Login(ctx context.Context, req *dto.LoginRequest) (*dto.Lo
 		Username:     user.Username,
 		Email:        user.Email,
 		AvatarURL:    user.AvatarURL,
+		BannerURL:    user.BannerURL,
+		Bio:          user.Bio,
 		AccessToken:  tokenPair.AccessToken,
 		RefreshToken: tokenPair.RefreshToken,
 		ExpiresIn:    tokenPair.ExpiresIn,
@@ -159,6 +161,8 @@ func (s *UserService) GetUserInfo(ctx context.Context, userID uint64) (*dto.User
 		Username:     user.Username,
 		Email:        user.Email,
 		AvatarURL:    user.AvatarURL,
+		BannerURL:    user.BannerURL,
+		Bio:          user.Bio,
 		IsOnline:     isOnline,
 		CustomStatus: customStatus,
 		CreatedAt:    user.CreatedAt.Format("2006-01-02 15:04:05"),
@@ -202,6 +206,16 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID uint64, req *dto
 	// 更新头像
 	if req.AvatarURL != "" {
 		user.AvatarURL = req.AvatarURL
+	}
+
+	// 更新横幅
+	if req.BannerURL != "" {
+		user.BannerURL = req.BannerURL
+	}
+
+	// 更新简介
+	if req.Bio != "" {
+		user.Bio = req.Bio
 	}
 
 	if err = s.userRepo.Update(ctx, user); err != nil {

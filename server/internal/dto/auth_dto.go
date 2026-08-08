@@ -19,6 +19,8 @@ type LoginResponse struct {
 	Username     string `json:"username"`
 	Email        string `json:"email"`
 	AvatarURL    string `json:"avatarUrl"`
+	BannerURL    string `json:"bannerUrl"`
+	Bio          string `json:"bio"`
 	AccessToken  string `json:"accessToken"`
 	RefreshToken string `json:"refreshToken"`
 	ExpiresIn    int64  `json:"expiresIn"`
@@ -46,6 +48,8 @@ type UpdateProfileRequest struct {
 	Username  string `json:"username" binding:"omitempty,min=3,max=50"`
 	Email     string `json:"email" binding:"omitempty,email"`
 	AvatarURL string `json:"avatarUrl" binding:"omitempty,url,max=500"`
+	BannerURL string `json:"bannerUrl" binding:"omitempty,url,max=500"`
+	Bio       string `json:"bio" binding:"omitempty,max=500"`
 }
 
 // ChangePasswordRequest 修改密码请求
@@ -60,6 +64,8 @@ type UserInfoResponse struct {
 	Username     string `json:"username"`
 	Email        string `json:"email"`
 	AvatarURL    string `json:"avatarUrl"`
+	BannerURL    string `json:"bannerUrl"`
+	Bio          string `json:"bio"`
 	IsOnline     bool   `json:"isOnline"`
 	CustomStatus string `json:"customStatus"`
 	CreatedAt    string `json:"createdAt"`

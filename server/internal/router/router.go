@@ -10,11 +10,12 @@ import (
 // SetupRouter 设置路由
 func SetupRouter(
 	authHandler *handler.AuthHandler,
-	roomHandler *handler.RoomHandler,
-	playlistHandler *handler.PlaylistHandler,
-	chatHandler *handler.ChatHandler,
-	screenShareHandler *handler.ScreenShareHandler,
+	serverHandler *handler.ServerHandler,
+	channelHandler *handler.ChannelHandler,
+	messageHandler *handler.MessageHandler,
+	roleHandler *handler.RoleHandler,
 	voiceHandler *handler.VoiceHandler,
+	playlistHandler *handler.PlaylistHandler,
 	friendHandler *handler.FriendHandler,
 	uploadHandler *handler.UploadHandler,
 	wsHandler *ws.Handler,
@@ -22,11 +23,8 @@ func SetupRouter(
 	r := gin.New()
 
 	// 中间件注册顺序：日志追踪 -> 限流 -> CORS -> 认证 -> 授权 -> 参数校验 -> handler
-	// RequestID 中间件必须放在最前面，确保所有后续中间件和处理器都能获取到 TraceID
 	r.Use(middleware.RequestID())
-	// 使用自定义的 zap 日志中间件替换 gin 默认日志
 	r.Use(middleware.Logger())
-	// 使用自定义的恢复中间件，记录完整的 panic 堆栈信息
 	r.Use(middleware.Recovery())
 	r.Use(middleware.CORS())
 	r.Use(middleware.RateLimiter(100))
@@ -48,112 +46,107 @@ func SetupRouter(
 	userGroup.Use(middleware.JWTAuth())
 	{
 		userGroup.GET("/info", authHandler.GetUserInfo)
-		userGroup.GET("/profile", authHandler.GetUserInfo) // 别名路由，与 /info 返回相同数据
+		userGroup.GET("/profile", authHandler.GetUserInfo)
 		userGroup.PUT("/profile", authHandler.UpdateProfile)
 		userGroup.PUT("/password", authHandler.ChangePassword)
 		userGroup.PUT("/status", authHandler.SetCustomStatus)
-		userGroup.GET("/messages", chatHandler.GetUserHistoryMessages)
 		userGroup.DELETE("/account", authHandler.DeleteAccount)
 	}
 
-	// 房间相关
-	roomGroup := v1.Group("/rooms")
-	{
-		// 公开接口
-		// 注意：/public 必须注册在 /:id 之前，Gin 中静态路由优先于参数路由匹配
-		roomGroup.GET("", roomHandler.GetRoomList)
-		roomGroup.GET("/public", roomHandler.GetPublicRooms)
-		roomGroup.GET("/:id", roomHandler.GetRoomInfo)
-		roomGroup.GET("/:id/participants", roomHandler.GetRoomParticipants)
-		roomGroup.GET("/:id/online/count", roomHandler.GetOnlineCount)
-		roomGroup.GET("/:id/online/users", roomHandler.GetOnlineUsers)
-
-		// 需要鉴权
-		roomGroup.POST("", middleware.JWTAuth(), roomHandler.CreateRoom)
-		roomGroup.POST("/join/:id", middleware.JWTAuth(), roomHandler.JoinRoom)
-		roomGroup.POST("/leave/:id", middleware.JWTAuth(), roomHandler.LeaveRoom)
-		roomGroup.POST("/:id/kick/:userId", middleware.JWTAuth(), roomHandler.KickMember)
-		roomGroup.PUT("/:id/participants/:userId/role", middleware.JWTAuth(), roomHandler.UpdateMemberRole)
-		roomGroup.DELETE("/:id", middleware.JWTAuth(), roomHandler.DeleteRoom)
-	}
-
-	// 用户状态查询（需要鉴权）
-	v1.GET("/users/:id/status", middleware.JWTAuth(), roomHandler.GetUserStatus)
+	// 用户状态查询
+	v1.GET("/users/:id/status", middleware.JWTAuth(), authHandler.GetUserOnlineStatus)
 	v1.GET("/users/:id/online", middleware.JWTAuth(), authHandler.GetUserOnlineStatus)
 	v1.GET("/users/:id/info", middleware.JWTAuth(), authHandler.GetUserInfoByID)
 
-	// 播放列表相关（需要鉴权）
-	playlistGroup := v1.Group("/rooms/:id/playlist")
-	playlistGroup.Use(middleware.JWTAuth())
+	// 服务器相关（需要鉴权）
+	serverGroup := v1.Group("/servers")
+	serverGroup.Use(middleware.JWTAuth())
 	{
-		playlistGroup.GET("", playlistHandler.GetPlaylist)
-		playlistGroup.POST("", playlistHandler.AddItem)
-		playlistGroup.DELETE("/:itemId", playlistHandler.RemoveItem)
-		playlistGroup.POST("/play", playlistHandler.Play)
-		playlistGroup.POST("/pause", playlistHandler.Pause)
-		playlistGroup.POST("/skip", playlistHandler.Skip)
-		playlistGroup.POST("/reorder", playlistHandler.Reorder)
+		serverGroup.POST("", serverHandler.CreateServer)
+		serverGroup.GET("", serverHandler.GetServerList)
+		serverGroup.GET("/:id", serverHandler.GetServerDetail)
+		serverGroup.PUT("/:id", serverHandler.UpdateServer)
+		serverGroup.DELETE("/:id", serverHandler.DeleteServer)
+		serverGroup.POST("/:id/join", serverHandler.JoinServer)
+		serverGroup.POST("/:id/leave", serverHandler.LeaveServer)
+
+		// 成员管理
+		serverGroup.GET("/:id/members", serverHandler.GetMembers)
+		serverGroup.GET("/:id/members/:uid", serverHandler.GetMember)
+		serverGroup.PUT("/:id/members/:uid", serverHandler.UpdateMember)
+		serverGroup.DELETE("/:id/members/:uid", serverHandler.KickMember)
+
+		// 角色管理
+		serverGroup.GET("/:id/roles", roleHandler.GetRoles)
+		serverGroup.POST("/:id/roles", roleHandler.CreateRole)
+		serverGroup.PUT("/:id/roles/:rid", roleHandler.UpdateRole)
+		serverGroup.DELETE("/:id/roles/:rid", roleHandler.DeleteRole)
+
+		// 频道管理
+		serverGroup.POST("/:sid/channels", channelHandler.CreateChannel)
+		serverGroup.GET("/:sid/channels", channelHandler.GetChannelTree)
+		serverGroup.PUT("/:sid/channels/reorder", channelHandler.ReorderChannels)
+		serverGroup.PUT("/:sid/channels/:cid", channelHandler.UpdateChannel)
+		serverGroup.DELETE("/:sid/channels/:cid", channelHandler.DeleteChannel)
 	}
 
-	// 聊天相关（需要鉴权）
-	chatGroup := v1.Group("/rooms/:id/messages")
-	chatGroup.Use(middleware.JWTAuth())
+	// 频道维度操作（消息/语音/屏幕共享/播放列表）
+	channelGroup := v1.Group("/channels/:cid")
+	channelGroup.Use(middleware.JWTAuth())
 	{
-		chatGroup.GET("", chatHandler.GetMessages)
-		chatGroup.POST("", chatHandler.SendMessage)
-		chatGroup.PUT("/:messageId", chatHandler.UpdateMessage)
-		chatGroup.DELETE("/:messageId", chatHandler.DeleteMessage)
+		// 消息
+		channelGroup.GET("/messages", messageHandler.GetMessages)
+		channelGroup.POST("/messages", messageHandler.SendMessage)
+		channelGroup.PUT("/messages/:mid", messageHandler.UpdateMessage)
+		channelGroup.DELETE("/messages/:mid", messageHandler.DeleteMessage)
+		channelGroup.POST("/messages/:mid/pin", messageHandler.PinMessage)
+		channelGroup.POST("/messages/:mid/reactions", messageHandler.AddReaction)
+		channelGroup.DELETE("/messages/:mid/reactions/:emoji", messageHandler.RemoveReaction)
+
+		// 语音
+		channelGroup.POST("/voice/join", voiceHandler.JoinVoice)
+		channelGroup.POST("/voice/leave", voiceHandler.LeaveVoice)
+		channelGroup.GET("/voice/participants", voiceHandler.GetVoiceParticipants)
+		channelGroup.POST("/voice/mute", voiceHandler.SetMute)
+
+		// 屏幕共享
+		channelGroup.POST("/screenshare/start", voiceHandler.StartScreenShare)
+		channelGroup.POST("/screenshare/stop", voiceHandler.StopScreenShare)
+		channelGroup.GET("/screenshare", voiceHandler.GetActiveScreenShare)
+
+		// 播放列表
+		channelGroup.GET("/playlist", playlistHandler.GetPlaylist)
+		channelGroup.POST("/playlist", playlistHandler.AddItem)
+		channelGroup.DELETE("/playlist/:itemId", playlistHandler.RemoveItem)
+		channelGroup.POST("/playlist/play", playlistHandler.Play)
+		channelGroup.POST("/playlist/pause", playlistHandler.Pause)
+		channelGroup.POST("/playlist/skip", playlistHandler.Skip)
+		channelGroup.POST("/playlist/reorder", playlistHandler.Reorder)
 	}
 
-	// 消息搜索（需要鉴权）
-	v1.GET("/messages/search", middleware.JWTAuth(), chatHandler.SearchMessages)
-
-	// 屏幕共享相关（需要鉴权）
-	screenShareGroup := v1.Group("/rooms/:id/screenshare")
-	screenShareGroup.Use(middleware.JWTAuth())
-	{
-		screenShareGroup.POST("/start", screenShareHandler.StartScreenShare)
-		screenShareGroup.POST("/stop", screenShareHandler.StopScreenShare)
-		screenShareGroup.GET("", screenShareHandler.GetActiveScreenShare)
-	}
-
-	// 语音相关（需要鉴权）
-	voiceGroup := v1.Group("/rooms/:id/voice")
-	voiceGroup.Use(middleware.JWTAuth())
-	{
-		voiceGroup.POST("/join", voiceHandler.JoinVoice)
-		voiceGroup.POST("/leave", voiceHandler.LeaveVoice)
-		voiceGroup.GET("/participants", voiceHandler.GetVoiceParticipants)
-		voiceGroup.POST("/mute", voiceHandler.SetMute)
-	}
+	// 消息搜索（全局，需要鉴权）
+	v1.GET("/messages/search", middleware.JWTAuth(), messageHandler.SearchMessages)
 
 	// 好友相关（需要鉴权）
 	friendGroup := v1.Group("/friends")
 	friendGroup.Use(middleware.JWTAuth())
 	{
-		// 好友请求
 		friendGroup.POST("/request", friendHandler.SendFriendRequest)
 		friendGroup.POST("/request/:id/handle", friendHandler.HandleFriendRequest)
 		friendGroup.GET("/requests", friendHandler.GetPendingRequests)
-
-		// 好友列表
 		friendGroup.GET("", friendHandler.GetFriendList)
 		friendGroup.DELETE("/:id", friendHandler.DeleteFriend)
-
-		// 搜索用户
 		friendGroup.GET("/search", friendHandler.SearchUser)
-
-		// 私聊消息
 		friendGroup.POST("/messages", friendHandler.SendPrivateMessage)
 		friendGroup.GET("/messages/unread", friendHandler.GetUnreadCount)
 		friendGroup.GET("/:id/messages", friendHandler.GetPrivateMessages)
 		friendGroup.GET("/conversations", friendHandler.GetConversations)
 	}
 
-	// 文件上传（需要鉴权，multipart/form-data，字段 file）
+	// 文件上传（需要鉴权）
 	v1.POST("/upload", middleware.JWTAuth(), uploadHandler.Upload)
 
-	// 静态文件服务：上传文件访问（上传服务返回的 url 指向此目录）
+	// 静态文件服务
 	r.Static("/uploads", "./uploads")
 
 	// WebSocket

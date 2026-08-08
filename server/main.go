@@ -24,13 +24,11 @@ import (
 func main() {
 	// 加载配置
 	if err := config.Load("config.yaml"); err != nil {
-		// 配置加载失败时使用标准错误输出，因为日志系统尚未初始化
 		logger.Fatalf("加载配置失败: %v", err)
 	}
 	cfg := config.Get()
 
-	// 初始化日志系统（配置加载成功后立即初始化）
-	// 根据环境变量 APP_ENV 决定日志格式：development使用console，production使用json
+	// 初始化日志系统
 	logCfg := &logger.Config{
 		Level:        logger.Level(cfg.Log.Level),
 		Format:       cfg.Log.Format,
@@ -48,8 +46,7 @@ func main() {
 		zap.String("log_format", cfg.Log.Format),
 	)
 
-	// 初始化Origin验证器（必须在配置加载后、WebSocket Hub初始化前）
-	// 用于CORS和WebSocket的Origin白名单验证
+	// 初始化Origin验证器
 	middleware.InitializeOriginValidator(cfg)
 	logger.Info("Origin验证器初始化完成")
 
@@ -69,42 +66,45 @@ func main() {
 	}
 
 	// 初始化仓储
-	// 使用 MustGetDB 因为此时数据库已成功初始化，若未初始化则应 panic
 	db := database.MustGetDB()
 	userRepo := repository.NewUserRepository(db)
 	userStatusRepo := repository.NewUserStatusRepository(db)
-	roomRepo := repository.NewRoomRepository(db)
-	participantRepo := repository.NewRoomParticipantRepository(db)
-	playlistRepo := repository.NewPlaylistRepository(db)
-	chatMsgRepo := repository.NewChatMessageRepository(db)
-	screenShareRepo := repository.NewScreenShareRepository(db)
-	voiceSessionRepo := repository.NewVoiceSessionRepository(db)
 	friendRepo := repository.NewFriendRepository(db)
+	serverRepo := repository.NewServerRepository(db)
+	memberRepo := repository.NewServerMemberRepository(db)
+	roleRepo := repository.NewRoleRepository(db)
+	channelRepo := repository.NewChannelRepository(db)
+	msgRepo := repository.NewMessageRepository(db)
+	reactionRepo := repository.NewReactionRepository(db)
+	voiceRepo := repository.NewVoiceRepository(db)
+	playlistRepo := repository.NewPlaylistRepository(db)
 
 	// 初始化事务管理器
 	txManager := repository.NewTransactionManager(db)
 
 	// 初始化服务
 	userService := service.NewUserService(userRepo, userStatusRepo, txManager)
-	roomService := service.NewRoomService(roomRepo, participantRepo, userRepo, txManager)
-	playlistService := service.NewPlaylistService(playlistRepo, roomRepo, participantRepo)
-	chatService := service.NewChatService(chatMsgRepo, userRepo, participantRepo)
-	screenShareService := service.NewScreenShareService(screenShareRepo, roomRepo, userRepo, participantRepo)
-	voiceService := service.NewVoiceService(voiceSessionRepo, roomRepo, userRepo, participantRepo)
 	friendService := service.NewFriendService(friendRepo, userRepo, userStatusRepo, txManager)
 	uploadService := service.NewUploadService()
+	serverService := service.NewServerService(serverRepo, memberRepo, roleRepo, channelRepo, userRepo, txManager)
+	channelService := service.NewChannelService(channelRepo, serverRepo, serverService)
+	roleService := service.NewRoleService(roleRepo, serverRepo, serverService)
+	messageService := service.NewMessageService(msgRepo, reactionRepo, channelRepo, userRepo, serverService)
+	voiceService := service.NewVoiceService(voiceRepo, channelRepo, userRepo, serverService)
+	playlistService := service.NewPlaylistService(playlistRepo, channelRepo, serverService)
 
 	// 初始化处理器
 	authHandler := handler.NewAuthHandler(userService)
-	roomHandler := handler.NewRoomHandler(roomService)
-	playlistHandler := handler.NewPlaylistHandler(playlistService)
-	chatHandler := handler.NewChatHandler(chatService)
-	screenShareHandler := handler.NewScreenShareHandler(screenShareService)
-	voiceHandler := handler.NewVoiceHandler(voiceService)
 	friendHandler := handler.NewFriendHandler(friendService)
 	uploadHandler := handler.NewUploadHandler(uploadService)
+	serverHandler := handler.NewServerHandler(serverService)
+	channelHandler := handler.NewChannelHandler(channelService)
+	roleHandler := handler.NewRoleHandler(roleService)
+	messageHandler := handler.NewMessageHandler(messageService)
+	voiceHandler := handler.NewVoiceHandler(voiceService)
+	playlistHandler := handler.NewPlaylistHandler(playlistService)
 
-	// 初始化WebSocket Hub，使用配置中的心跳超时时间
+	// 初始化WebSocket Hub
 	hub := ws.NewHub(userService, cfg.WebSocket.HeartbeatTimeout)
 	go hub.Run()
 	wsHandler := ws.NewHandler(hub)
@@ -112,7 +112,18 @@ func main() {
 		zap.Duration("heartbeat_timeout", cfg.WebSocket.HeartbeatTimeout))
 
 	// 设置路由
-	r := router.SetupRouter(authHandler, roomHandler, playlistHandler, chatHandler, screenShareHandler, voiceHandler, friendHandler, uploadHandler, wsHandler)
+	r := router.SetupRouter(
+		authHandler,
+		serverHandler,
+		channelHandler,
+		messageHandler,
+		roleHandler,
+		voiceHandler,
+		playlistHandler,
+		friendHandler,
+		uploadHandler,
+		wsHandler,
+	)
 
 	// 启动服务器
 	srv := &http.Server{

@@ -9,14 +9,6 @@ import (
 
 // TransactionManager 事务管理器接口
 // 提供事务的开启、提交、回滚能力
-// 使用方式：
-//
-//	tx := tm.Begin(ctx)
-//	defer tx.Rollback() // 安全回滚，已提交时无操作
-//	// ... 执行业务操作
-//	if err := tx.Commit(); err != nil {
-//	    return err
-//	}
 type TransactionManager interface {
 	// Begin 开始事务，返回事务上下文
 	Begin(ctx context.Context) TransactionContext
@@ -45,74 +37,119 @@ type UserRepositoryInterface interface {
 	ExistsByUsername(ctx context.Context, username string) (bool, error)
 	ExistsByEmail(ctx context.Context, email string) (bool, error)
 	Delete(ctx context.Context, id uint64) error
-	// DeleteWithDB 使用指定 DB 删除用户（用于事务）
-	// 注意：事务 DB 应通过 TransactionContext.DB() 获取，内部已包含 context
 	DeleteWithDB(db *gorm.DB, id uint64) error
-	// FindByIDs 批量查询用户
 	FindByIDs(ctx context.Context, userIDs []uint64) (map[uint64]*model.User, error)
 }
 
-// RoomRepositoryInterface 房间仓储接口
-type RoomRepositoryInterface interface {
-	Create(ctx context.Context, room *model.Room) error
-	FindByID(ctx context.Context, id uint64) (*model.Room, error)
-	FindByInviteCode(ctx context.Context, inviteCode string) (*model.Room, error)
-	List(ctx context.Context, roomType int8, page, pageSize int) ([]model.Room, int64, error)
-	Update(ctx context.Context, room *model.Room) error
+// ServerRepositoryInterface 服务器仓储接口
+type ServerRepositoryInterface interface {
+	Create(ctx context.Context, server *model.Server) error
+	CreateWithDB(db *gorm.DB, server *model.Server) error
+	FindByID(ctx context.Context, id uint64) (*model.Server, error)
+	FindByInviteCode(ctx context.Context, inviteCode string) (*model.Server, error)
+	ListByUserID(ctx context.Context, userID uint64) ([]model.Server, error)
+	Update(ctx context.Context, server *model.Server) error
 	Delete(ctx context.Context, id uint64) error
-	GenerateInviteCode(ctx context.Context) (string, error)
-	// CreateWithDB 使用指定 DB 创建房间（用于事务）
-	// 注意：事务 DB 应通过 TransactionContext.DB() 获取，内部已包含 context
-	CreateWithDB(db *gorm.DB, room *model.Room) error
-	// DeleteWithDB 使用指定 DB 删除房间（用于事务）
 	DeleteWithDB(db *gorm.DB, id uint64) error
+	GenerateInviteCode(ctx context.Context) (string, error)
 }
 
-// RoomParticipantRepositoryInterface 房间参与者仓储接口
-type RoomParticipantRepositoryInterface interface {
-	Create(ctx context.Context, participant *model.RoomParticipant) error
-	FindByRoomAndUser(ctx context.Context, roomID, userID uint64) (*model.RoomParticipant, error)
-	FindActiveByRoom(ctx context.Context, roomID uint64) ([]model.RoomParticipant, error)
-	CountActiveByRoom(ctx context.Context, roomID uint64) (int, error)
-	Update(ctx context.Context, participant *model.RoomParticipant) error
-	Leave(ctx context.Context, roomID, userID uint64) error
-	ExistsActive(ctx context.Context, roomID, userID uint64) (bool, error)
-	// CreateWithDB 使用指定 DB 创建参与者记录（用于事务）
-	CreateWithDB(db *gorm.DB, participant *model.RoomParticipant) error
-	// LeaveWithDB 使用指定 DB 设置参与者离开（用于事务）
-	LeaveWithDB(db *gorm.DB, roomID, userID uint64) error
-	// DeleteByRoomWithDB 使用指定 DB 删除房间内所有参与者记录（用于事务）
-	DeleteByRoomWithDB(db *gorm.DB, roomID uint64) error
-	// FindActiveByUser 查询用户当前活跃的房间参与记录
-	FindActiveByUser(ctx context.Context, userID uint64) ([]model.RoomParticipant, error)
-	// FindActiveByUserWithRoom 查询用户当前活跃的房间参与记录（含房间信息）
-	FindActiveByUserWithRoom(ctx context.Context, userID uint64) ([]struct {
-		model.RoomParticipant
-		Room model.Room
-	}, error)
-	// DeleteByRoom 删除房间内所有参与者记录
-	DeleteByRoom(ctx context.Context, roomID uint64) error
-	// CountActiveByRoomsBatch 批量统计多个房间的活跃参与者数量
-	CountActiveByRoomsBatch(ctx context.Context, roomIDs []uint64) (map[uint64]int, error)
+// ServerMemberRepositoryInterface 服务器成员仓储接口
+type ServerMemberRepositoryInterface interface {
+	AddMember(ctx context.Context, member *model.ServerMember) error
+	AddMemberWithDB(db *gorm.DB, member *model.ServerMember) error
+	RemoveMember(ctx context.Context, serverID, userID uint64) error
+	FindByServerAndUser(ctx context.Context, serverID, userID uint64) (*model.ServerMember, error)
+	ListByServer(ctx context.Context, serverID uint64) ([]model.ServerMember, error)
+	ListServersByUser(ctx context.Context, userID uint64) ([]model.ServerMember, error)
+	UpdateMember(ctx context.Context, member *model.ServerMember) error
+	Exists(ctx context.Context, serverID, userID uint64) (bool, error)
+	CountByServer(ctx context.Context, serverID uint64) (int, error)
+}
+
+// RoleRepositoryInterface 角色仓储接口
+type RoleRepositoryInterface interface {
+	Create(ctx context.Context, role *model.Role) error
+	CreateWithDB(db *gorm.DB, role *model.Role) error
+	FindByID(ctx context.Context, id uint64) (*model.Role, error)
+	FindByServer(ctx context.Context, serverID uint64) ([]model.Role, error)
+	Update(ctx context.Context, role *model.Role) error
+	Delete(ctx context.Context, id uint64) error
+	ListByServerOrdered(ctx context.Context, serverID uint64) ([]model.Role, error)
+	// AssignRoleToMember 为成员分配角色
+	AssignRoleToMember(ctx context.Context, serverID, memberID, roleID uint64) error
+	// RemoveRoleFromMember 移除成员的角色
+	RemoveRoleFromMember(ctx context.Context, serverID, memberID, roleID uint64) error
+	// FindRolesByMember 查询成员的所有角色
+	FindRolesByMember(ctx context.Context, memberID uint64) ([]model.Role, error)
+	// SetMemberRoles 设置成员的角色列表（覆盖）
+	SetMemberRoles(ctx context.Context, serverID, memberID uint64, roleIDs []uint64) error
+	// FindMemberRoleIDs 查询成员的角色ID列表
+	FindMemberRoleIDs(ctx context.Context, memberID uint64) ([]uint64, error)
+}
+
+// ChannelRepositoryInterface 频道仓储接口
+type ChannelRepositoryInterface interface {
+	Create(ctx context.Context, channel *model.Channel) error
+	CreateWithDB(db *gorm.DB, channel *model.Channel) error
+	FindByID(ctx context.Context, id uint64) (*model.Channel, error)
+	FindByServer(ctx context.Context, serverID uint64) ([]model.Channel, error)
+	Update(ctx context.Context, channel *model.Channel) error
+	Delete(ctx context.Context, id uint64) error
+	Reorder(ctx context.Context, serverID uint64, orders []struct {
+		ID       uint64
+		Position int
+	}) error
+	DeleteByServer(ctx context.Context, serverID uint64) error
+}
+
+// MessageRepositoryInterface 频道消息仓储接口
+type MessageRepositoryInterface interface {
+	Create(ctx context.Context, msg *model.ChannelMessage) error
+	FindByID(ctx context.Context, id uint64) (*model.ChannelMessage, error)
+	FindByChannel(ctx context.Context, channelID uint64, page, pageSize int) ([]model.ChannelMessage, int64, error)
+	FindRecent(ctx context.Context, channelID uint64, limit int) ([]model.ChannelMessage, error)
+	Update(ctx context.Context, msg *model.ChannelMessage) error
+	UpdateContent(ctx context.Context, messageID uint64, content string) error
+	Delete(ctx context.Context, id uint64) error
+	FindPinned(ctx context.Context, channelID uint64) ([]model.ChannelMessage, error)
+	SearchByChannel(ctx context.Context, query string, channelID uint64, page, pageSize int) ([]model.ChannelMessage, int64, error)
+	UpdatePinStatus(ctx context.Context, messageID uint64, isPinned bool) error
+}
+
+// ReactionRepositoryInterface 表情反应仓储接口
+type ReactionRepositoryInterface interface {
+	Add(ctx context.Context, reaction *model.MessageReaction) error
+	Remove(ctx context.Context, messageID, userID uint64, emoji string) error
+	ListByMessage(ctx context.Context, messageID uint64) ([]model.MessageReaction, error)
+}
+
+// VoiceRepositoryInterface 语音仓储接口
+type VoiceRepositoryInterface interface {
+	// VoiceParticipant 实时状态
+	UpsertParticipant(ctx context.Context, p *model.VoiceParticipant) error
+	DeleteParticipant(ctx context.Context, channelID, userID uint64) error
+	FindParticipantsByChannel(ctx context.Context, channelID uint64) ([]model.VoiceParticipant, error)
+	UpdateMute(ctx context.Context, channelID, userID uint64, isMuted bool) error
+	// VoiceSession 历史记录
+	CreateSession(ctx context.Context, session *model.VoiceSession) error
+	EndSession(ctx context.Context, channelID, userID uint64) error
+	// ScreenShareSession
+	CreateScreenShare(ctx context.Context, session *model.ScreenShareSession) error
+	FindActiveScreenShareByChannel(ctx context.Context, channelID uint64) (*model.ScreenShareSession, error)
+	EndScreenShare(ctx context.Context, channelID, userID uint64) error
 }
 
 // PlaylistRepositoryInterface 播放列表仓储接口
 type PlaylistRepositoryInterface interface {
 	Create(ctx context.Context, item *model.PlaylistItem) error
 	FindByID(ctx context.Context, id uint64) (*model.PlaylistItem, error)
-	FindByRoom(ctx context.Context, roomID uint64) ([]model.PlaylistItem, error)
-	FindWaitingByRoom(ctx context.Context, roomID uint64) ([]model.PlaylistItem, error)
-	FindPlayingByRoom(ctx context.Context, roomID uint64) (*model.PlaylistItem, error)
+	FindByChannel(ctx context.Context, channelID uint64) ([]model.PlaylistItem, error)
+	FindWaitingByChannel(ctx context.Context, channelID uint64) ([]model.PlaylistItem, error)
+	FindPlayingByChannel(ctx context.Context, channelID uint64) (*model.PlaylistItem, error)
 	Update(ctx context.Context, item *model.PlaylistItem) error
 	UpdateStatus(ctx context.Context, id uint64, status int8) error
 	Delete(ctx context.Context, id uint64) error
-	GetMaxOrder(ctx context.Context, roomID uint64) (uint32, error)
-}
-
-// ChatMessageRepositoryInterface 聊天消息仓储接口
-type ChatMessageRepositoryInterface interface {
-	Create(ctx context.Context, msg *model.ChatMessage) error
-	FindByRoom(ctx context.Context, roomID uint64, page, pageSize int) ([]model.ChatMessage, int64, error)
-	FindRecentByRoom(ctx context.Context, roomID uint64, limit int) ([]model.ChatMessage, error)
-	SearchMessages(ctx context.Context, query string, roomID uint64, userID uint64, page, pageSize int) ([]model.ChatMessage, int64, error)
+	GetMaxOrder(ctx context.Context, channelID uint64) (uint32, error)
+	Reorder(ctx context.Context, channelID uint64, itemIDs []uint64) error
 }

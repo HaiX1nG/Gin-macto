@@ -73,13 +73,30 @@ func InitDB(cfg *config.DatabaseConfig) error {
 // autoMigrate 自动迁移数据库表结构
 func autoMigrate() error {
 	return db.AutoMigrate(
+		// 用户域
 		&model.User{},
-		&model.Room{},
-		&model.RoomParticipant{},
-		&model.PlaylistItem{},
-		&model.ChatMessage{},
-		&model.ScreenShareSession{},
+		&model.UserStatus{},
+		// 服务器域
+		&model.Server{},
+		&model.ServerMember{},
+		&model.Role{},
+		&model.ServerMemberRole{},
+		// 频道域
+		&model.Channel{},
+		// 消息域
+		&model.ChannelMessage{},
+		&model.MessageAttachment{},
+		&model.MessageReaction{},
+		// 语音/屏幕共享域
+		&model.VoiceParticipant{},
 		&model.VoiceSession{},
+		&model.ScreenShareSession{},
+		// 播放列表域
+		&model.PlaylistItem{},
+		// 好友域
+		&model.FriendRequest{},
+		&model.Friendship{},
+		&model.PrivateMessage{},
 	)
 }
 

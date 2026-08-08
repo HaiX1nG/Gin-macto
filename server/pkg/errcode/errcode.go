@@ -100,6 +100,32 @@ var (
 	// ErrNotFriend 不是好友关系，尝试对非好友用户执行好友专属操作
 	ErrNotFriend = &Error{Code: 40603, Message: "不是好友关系"}
 
+	// 服务器模块错误 407xx
+	// ErrServerNotFound 服务器不存在，查询的服务器ID在数据库中未找到
+	ErrServerNotFound = &Error{Code: 40700, Message: "服务器不存在"}
+	// ErrServerFull 服务器已满，服务器当前成员数量已达到上限
+	ErrServerFull = &Error{Code: 40701, Message: "服务器已满"}
+	// ErrInvalidServerInviteCode 服务器邀请码无效
+	ErrInvalidServerInviteCode = &Error{Code: 40702, Message: "邀请码无效"}
+	// ErrAlreadyInServer 已在服务器中，用户尝试加入已参与的服务器
+	ErrAlreadyInServer = &Error{Code: 40703, Message: "已在服务器中"}
+	// ErrNotInServer 不在服务器中，用户尝试退出未参与的服务器
+	ErrNotInServer = &Error{Code: 40704, Message: "不在服务器中"}
+	// ErrNotServerOwner 不是服务器拥有者，非 owner 用户尝试执行 owner 专属操作
+	ErrNotServerOwner = &Error{Code: 40705, Message: "不是服务器拥有者"}
+	// ErrServerMemberNotFound 服务器成员不存在
+	ErrServerMemberNotFound = &Error{Code: 40706, Message: "服务器成员不存在"}
+	// ErrRoleNotFound 角色不存在
+	ErrRoleNotFound = &Error{Code: 40707, Message: "角色不存在"}
+	// ErrCannotDeleteDefaultRole 不能删除默认角色
+	ErrCannotDeleteDefaultRole = &Error{Code: 40708, Message: "不能删除默认角色"}
+	// ErrChannelNotFound 频道不存在
+	ErrChannelNotFound = &Error{Code: 40709, Message: "频道不存在"}
+	// ErrMessageNotFound 消息不存在
+	ErrMessageNotFound = &Error{Code: 40710, Message: "消息不存在"}
+	// ErrNoPermission 无权限执行此操作
+	ErrNoPermission = &Error{Code: 40711, Message: "无权限"}
+
 	// WebSocket错误 405xx
 	// ErrWSConnectFailed WebSocket连接失败，建立WebSocket连接时发生错误
 	ErrWSConnectFailed = &Error{Code: 40500, Message: "WebSocket连接失败"}
