@@ -83,11 +83,11 @@ func SetupRouter(
 		serverGroup.DELETE("/:id/roles/:rid", roleHandler.DeleteRole)
 
 		// 频道管理
-		serverGroup.POST("/:sid/channels", channelHandler.CreateChannel)
-		serverGroup.GET("/:sid/channels", channelHandler.GetChannelTree)
-		serverGroup.PUT("/:sid/channels/reorder", channelHandler.ReorderChannels)
-		serverGroup.PUT("/:sid/channels/:cid", channelHandler.UpdateChannel)
-		serverGroup.DELETE("/:sid/channels/:cid", channelHandler.DeleteChannel)
+		serverGroup.POST("/:id/channels", channelHandler.CreateChannel)
+		serverGroup.GET("/:id/channels", channelHandler.GetChannelTree)
+		serverGroup.PUT("/:id/channels/reorder", channelHandler.ReorderChannels)
+		serverGroup.PUT("/:id/channels/:cid", channelHandler.UpdateChannel)
+		serverGroup.DELETE("/:id/channels/:cid", channelHandler.DeleteChannel)
 	}
 
 	// 频道维度操作（消息/语音/屏幕共享/播放列表）

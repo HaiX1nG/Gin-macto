@@ -25,7 +25,7 @@ func NewChannelHandler(channelService *service.ChannelService) *ChannelHandler {
 func (h *ChannelHandler) CreateChannel(c *gin.Context) {
 	userID := c.GetUint64("userID")
 
-	serverIDStr := c.Param("sid")
+	serverIDStr := c.Param("id")
 	serverID, err := strconv.ParseUint(serverIDStr, 10, 64)
 	if err != nil {
 		response.Fail(c, errcode.ErrInvalidParam)
@@ -52,7 +52,7 @@ func (h *ChannelHandler) CreateChannel(c *gin.Context) {
 func (h *ChannelHandler) GetChannelTree(c *gin.Context) {
 	userID := c.GetUint64("userID")
 
-	serverIDStr := c.Param("sid")
+	serverIDStr := c.Param("id")
 	serverID, err := strconv.ParseUint(serverIDStr, 10, 64)
 	if err != nil {
 		response.Fail(c, errcode.ErrInvalidParam)
@@ -120,7 +120,7 @@ func (h *ChannelHandler) DeleteChannel(c *gin.Context) {
 func (h *ChannelHandler) ReorderChannels(c *gin.Context) {
 	userID := c.GetUint64("userID")
 
-	serverIDStr := c.Param("sid")
+	serverIDStr := c.Param("id")
 	serverID, err := strconv.ParseUint(serverIDStr, 10, 64)
 	if err != nil {
 		response.Fail(c, errcode.ErrInvalidParam)

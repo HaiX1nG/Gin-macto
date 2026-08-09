@@ -13,6 +13,7 @@ Thumbs.db
 
 # Binary
 server
+livemix-server
 *.exe
 *.exe~
 
