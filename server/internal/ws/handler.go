@@ -28,13 +28,13 @@ var upgrader = websocket.Upgrader{
 // 优先使用全局Origin验证器，未初始化时拒绝所有非同源请求
 // 安全降级说明：如果验证器未初始化（如测试环境），仅允许无Origin头的同源请求
 func getCheckOriginFunc() func(r *http.Request) bool {
-	validator := middleware.GetOriginValidator()
-	if validator != nil {
-		return validator.CheckOriginFunc()
-	}
-	// 验证器未初始化时的安全降级策略：仅允许无Origin头的同源请求
-	// 浏览器同源请求不会携带Origin头，因此这类请求可以安全放行
 	return func(r *http.Request) bool {
+		validator := middleware.GetOriginValidator()
+		if validator != nil {
+			return validator.IsAllowed(r.Header.Get("Origin"))
+		}
+		// 验证器未初始化时的安全降级策略：仅允许无Origin头的同源请求
+		// 浏览器同源请求不会携带Origin头，因此这类请求可以安全放行
 		origin := r.Header.Get("Origin")
 		return origin == ""
 	}
