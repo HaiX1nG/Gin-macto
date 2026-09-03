@@ -27,7 +27,7 @@ func NewAuthHandler(userService *service.UserService) *AuthHandler {
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req dto.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.FailWithMessage(c, nil, "参数校验失败: "+err.Error())
+		response.FailWithMessage(c, nil, "参数校验失败")
 		return
 	}
 
@@ -48,7 +48,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req dto.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.FailWithMessage(c, nil, "参数校验失败: "+err.Error())
+		response.FailWithMessage(c, nil, "参数校验失败")
 		return
 	}
 
@@ -65,7 +65,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	var req dto.RefreshTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.FailWithMessage(c, nil, "参数校验失败: "+err.Error())
+		response.FailWithMessage(c, nil, "参数校验失败")
 		return
 	}
 
@@ -121,7 +121,7 @@ func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 
 	var req dto.UpdateProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.FailWithMessage(c, nil, "参数校验失败: "+err.Error())
+		response.FailWithMessage(c, nil, "参数校验失败")
 		return
 	}
 
@@ -140,7 +140,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 
 	var req dto.ChangePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.FailWithMessage(c, nil, "参数校验失败: "+err.Error())
+		response.FailWithMessage(c, nil, "参数校验失败")
 		return
 	}
 
@@ -171,7 +171,7 @@ func (h *AuthHandler) SetCustomStatus(c *gin.Context) {
 
 	var req dto.SetCustomStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.FailWithMessage(c, nil, "参数校验失败: "+err.Error())
+		response.FailWithMessage(c, nil, "参数校验失败")
 		return
 	}
 
@@ -228,7 +228,7 @@ func (h *AuthHandler) DeleteAccount(c *gin.Context) {
 
 	var req dto.DeleteAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.FailWithMessage(c, nil, "参数校验失败: "+err.Error())
+		response.FailWithMessage(c, nil, "参数校验失败")
 		return
 	}
 
