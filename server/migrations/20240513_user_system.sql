@@ -1,0 +1,32 @@
+-- 用户系统迁移脚本
+-- 创建时间: 2024-05-13
+
+-- 用户表
+CREATE TABLE IF NOT EXISTS `users` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `username` VARCHAR(50) NOT NULL COMMENT '用户名',
+    `password_hash` VARCHAR(255) NOT NULL COMMENT '密码哈希',
+    `email` VARCHAR(100) DEFAULT NULL COMMENT '邮箱',
+    `avatar_url` VARCHAR(500) DEFAULT NULL COMMENT '头像URL',
+    `banner_url` VARCHAR(500) DEFAULT NULL COMMENT '横幅URL',
+    `bio` TEXT DEFAULT NULL COMMENT '个人简介',
+    `url` VARCHAR(500) DEFAULT '' COMMENT '个人主页',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE INDEX `uk_username` (`username`),
+    UNIQUE INDEX `uk_email` (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
+
+-- 用户在线状态表
+CREATE TABLE IF NOT EXISTS `user_status` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `user_id` BIGINT UNSIGNED NOT NULL COMMENT '用户ID',
+    `is_online` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否在线',
+    `custom_status` VARCHAR(100) DEFAULT '' COMMENT '自定义状态',
+    `last_seen_at` DATETIME DEFAULT NULL COMMENT '最后活跃时间',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE INDEX `uk_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户在线状态表';

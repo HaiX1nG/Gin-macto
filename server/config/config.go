@@ -128,11 +128,9 @@ type LogConfig struct {
 
 // WebSocketConfig WebSocket配置
 type WebSocketConfig struct {
-	// HeartbeatTimeout 心跳超时时间，超过此时间未收到客户端响应则断开连接
-	// 默认60秒，与前端心跳间隔（通常30秒）配合使用，允许丢失一次心跳
+	// HeartbeatTimeout 心跳超时时间
 	HeartbeatTimeout time.Duration `mapstructure:"heartbeat_timeout"`
 	// PingInterval 服务端发送Ping消息的间隔
-	// 默认30秒，客户端需要在超时前回复Pong
 	PingInterval time.Duration `mapstructure:"ping_interval"`
 	// WriteTimeout 写操作超时时间
 	WriteTimeout time.Duration `mapstructure:"write_timeout"`
@@ -140,6 +138,14 @@ type WebSocketConfig struct {
 	ReadTimeout time.Duration `mapstructure:"read_timeout"`
 	// SendBufferSize 发送缓冲区大小
 	SendBufferSize int `mapstructure:"send_buffer_size"`
+	// MaxConnections 最大并发连接数，默认 1000
+	MaxConnections int `mapstructure:"max_connections"`
+	// MaxMessageSize 单条消息最大字节数，默认 64KB
+	MaxMessageSize int64 `mapstructure:"max_message_size"`
+	// RateLimitPerSecond 每秒最大消息数，默认 30
+	RateLimitPerSecond int `mapstructure:"rate_limit_per_second"`
+	// AllowedOrigins 允许的 WebSocket Origin 白名单
+	AllowedOrigins []string `mapstructure:"allowed_origins"`
 }
 
 // DSN 返回MySQL连接字符串
@@ -315,6 +321,15 @@ func setDefaults() {
 	viper.SetDefault("websocket.read_timeout", "60s")
 	// 发送缓冲区大小256条消息
 	viper.SetDefault("websocket.send_buffer_size", 256)
+	// WebSocket安全配置
+	viper.SetDefault("websocket.max_connections", 1000)
+	viper.SetDefault("websocket.max_message_size", 65536)
+	viper.SetDefault("websocket.rate_limit_per_second", 30)
+	viper.SetDefault("websocket.allowed_origins", []string{
+		"http://localhost:5173",
+		"http://127.0.0.1:5173",
+		"app://.",
+	})
 }
 
 // Get 获取全局配置

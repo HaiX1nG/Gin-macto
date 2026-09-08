@@ -1,17 +1,22 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/yourorg/livemix/config"
 	"github.com/yourorg/livemix/internal/middleware"
+	"github.com/yourorg/livemix/internal/model"
+	"github.com/yourorg/livemix/internal/service"
+	"github.com/yourorg/livemix/pkg/errcode"
 	"github.com/yourorg/livemix/pkg/jwt"
 	"github.com/yourorg/livemix/pkg/logger"
-	"github.com/yourorg/livemix/pkg/util"
 	"go.uber.org/zap"
 )
 
@@ -42,7 +47,9 @@ func getCheckOriginFunc() func(r *http.Request) bool {
 
 // Handler WebSocket处理器
 type Handler struct {
-	hub *Hub
+	hub        *Hub
+	channelSvc *service.ChannelService
+	serverSvc  *service.ServerService
 }
 
 // NewHandler 创建WebSocket处理器实例
@@ -50,9 +57,19 @@ func NewHandler(hub *Hub) *Handler {
 	return &Handler{hub: hub}
 }
 
+// SetServices wires the channel authorization service used for validating
+// channel-scoped events. Keeping this separate preserves the lightweight Hub-only
+// constructor used by tests and embedders.
+func (h *Handler) SetServices(channelSvc *service.ChannelService, serverSvc *service.ServerService) {
+	h.channelSvc = channelSvc
+	h.serverSvc = serverSvc
+	h.hub.setChannelService(channelSvc)
+}
+
 // HandleWebSocket 处理WebSocket连接
 // per-app 单例连接，不要求 room_id 参数
 // 客户端连接后通过 join_channel/leave_channel 事件订阅频道
+// 安全策略：JWT认证 + Origin验证 + 消息大小限制 + 速率限制
 func (h *Handler) HandleWebSocket(c *gin.Context) {
 	// 从查询参数获取token
 	tokenString := c.Query("token")
@@ -80,6 +97,14 @@ func (h *Handler) HandleWebSocket(c *gin.Context) {
 		return
 	}
 
+	// 设置消息大小限制（防止 DoS 攻击）
+	cfg := config.Get()
+	maxMessageSize := cfg.WebSocket.MaxMessageSize
+	if maxMessageSize <= 0 {
+		maxMessageSize = 65536 // 默认 64KB
+	}
+	conn.SetReadLimit(maxMessageSize)
+
 	// 创建客户端（不绑定任何频道，Channels 初始为空）
 	client := &Client{
 		ID:             generateClientID(),
@@ -89,7 +114,9 @@ func (h *Handler) HandleWebSocket(c *gin.Context) {
 		Conn:           conn,
 		Send:           make(chan []byte, 256),
 		Hub:            h.hub,
-		lastActiveTime: time.Now(), // 初始化活跃时间
+		channelSvc:     h.channelSvc,
+		serverSvc:      h.serverSvc,
+		lastActiveTime: time.Now(),
 	}
 
 	// 注册客户端
@@ -105,10 +132,9 @@ func (h *Handler) HandleWebSocket(c *gin.Context) {
 // - 每次收到消息时更新客户端活跃时间
 // - 收到Pong响应时更新活跃时间并重置读超时
 // - 超时未收到消息或Pong，连接将被Hub的心跳检测关闭
+// 安全策略：速率限制，防止 DoS 攻击
 func (c *Client) readPump() {
-	defer func() {
-		c.Hub.unregister <- c
-	}()
+	defer c.requestUnregister()
 
 	c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	c.Conn.SetPongHandler(func(string) error {
@@ -126,6 +152,15 @@ func (c *Client) readPump() {
 
 		// 收到消息，更新活跃时间
 		c.UpdateLastActiveTime()
+
+		// 速率限制检查
+		if c.Hub.rateLimiter != nil && !c.Hub.rateLimiter.AllowMessage(c.ID) {
+			c.Hub.SendToClient(c.ID, EventError, map[string]any{
+				"code":    40503,
+				"message": "消息发送频率过高，请稍后再试",
+			})
+			continue
+		}
 
 		// 解析消息
 		var event Event
@@ -155,20 +190,10 @@ func (c *Client) writePump() {
 				return
 			}
 
-			w, err := c.Conn.NextWriter(websocket.TextMessage)
-			if err != nil {
-				return
-			}
-			w.Write(message)
-
-			// 批量发送
-			n := len(c.Send)
-			for i := 0; i < n; i++ {
-				w.Write([]byte{'\n'})
-				w.Write(<-c.Send)
-			}
-
-			if err := w.Close(); err != nil {
+			// Each queued message was marshaled as one complete JSON document.
+			// Keep one document per text frame; newline-delimited batching makes
+			// WebSocket frames ambiguous and breaks strict clients.
+			if err := c.Conn.WriteMessage(websocket.TextMessage, message); err != nil {
 				return
 			}
 
@@ -184,6 +209,33 @@ func (c *Client) writePump() {
 // handleEvent 处理客户端事件
 // 安全策略：所有用户输入的消息内容在广播前必须进行XSS过滤，防止反射型XSS攻击
 func (c *Client) handleEvent(event Event) {
+	// Return protocol errors to the sender without exposing internal details.
+	reject := func(err error) {
+		message := "无权执行此操作"
+		if typed, ok := err.(*errcode.Error); ok {
+			message = typed.Message
+		}
+		c.Hub.SendToClient(c.ID, EventError, map[string]any{
+			"event":   event.Event,
+			"message": message,
+		})
+	}
+
+	validateChannel := func(channelID uint64, permission int64) (*model.Channel, bool) {
+		if channelID == 0 || c.channelSvc == nil {
+			reject(errcode.ErrInvalidParam)
+			return nil, false
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		channel, err := c.channelSvc.ValidateAccess(ctx, channelID, c.UserID, permission)
+		if err != nil {
+			reject(err)
+			return nil, false
+		}
+		return channel, true
+	}
+
 	switch event.Event {
 	case EventHeartbeat:
 		// 心跳事件，仅更新活跃时间，无需响应
@@ -191,35 +243,75 @@ func (c *Client) handleEvent(event Event) {
 		// 客户端可发送空心跳事件保持连接活跃
 
 	case EventJoinChannel:
-		// 订阅频道
-		// data: { channelId: number }
+		// 订阅频道，必须具备频道查看权限。
 		data, ok := event.Data.(map[string]any)
 		if !ok {
+			reject(errcode.ErrInvalidParam)
 			return
 		}
 		channelID, ok := parseChannelID(data["channelId"])
 		if !ok {
+			reject(errcode.ErrInvalidParam)
+			return
+		}
+		channel, ok := validateChannel(channelID, model.PermViewChannel)
+		if !ok {
+			return
+		}
+		if c.IsSubscribed(channelID) {
 			return
 		}
 
 		c.Hub.JoinChannel(c, channelID)
 
-		// 广播 member_joined 到该频道（排除自己）
+		member := map[string]any{
+			"serverId": channel.ServerID,
+			"userId":   c.UserID,
+			"username": c.Username,
+		}
+		if c.serverSvc != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			memberResponse, err := c.serverSvc.GetMember(ctx, channel.ServerID, c.UserID)
+			cancel()
+			if err == nil {
+				member = map[string]any{
+					"id":        memberResponse.ID,
+					"serverId":  memberResponse.ServerID,
+					"userId":    memberResponse.UserID,
+					"username":  memberResponse.Username,
+					"avatarUrl": memberResponse.AvatarURL,
+					"nickname":  memberResponse.Nickname,
+					"joinedAt":  memberResponse.JoinedAt,
+					"roles":     memberResponse.Roles,
+				}
+			}
+		}
+
+		// 广播 member_joined 到该频道（排除自己）。 The member object
+		// matches the current frontend contract; the client refreshes the full
+		// member list using serverId.
 		c.Hub.BroadcastToChannelExcept(channelID, EventMemberJoined, map[string]any{
-			"channelId": channelID,
-			"userId":    c.UserID,
-			"username":  c.Username,
+			"serverId": channel.ServerID,
+			"member":   member,
 		}, c.ID)
 
 	case EventLeaveChannel:
-		// 取消订阅频道
-		// data: { channelId: number }
+		// 离开频道前仍需验证用户属于该服务器且有频道查看权限。
 		data, ok := event.Data.(map[string]any)
 		if !ok {
+			reject(errcode.ErrInvalidParam)
 			return
 		}
 		channelID, ok := parseChannelID(data["channelId"])
 		if !ok {
+			reject(errcode.ErrInvalidParam)
+			return
+		}
+		if _, ok = validateChannel(channelID, model.PermViewChannel); !ok {
+			return
+		}
+		if !c.IsSubscribed(channelID) {
+			reject(errcode.ErrBadRequest.WithMessage("未订阅该频道"))
 			return
 		}
 
@@ -232,82 +324,168 @@ func (c *Client) handleEvent(event Event) {
 		}, c.ID)
 
 	case EventChatMessage:
-		// XSS过滤：对聊天消息内容进行HTML转义
-		sanitizedData := sanitizeEventData(event.Data)
-
-		// data 含 channelId，解析后定向广播到频道
-		data, ok := event.Data.(map[string]any)
-		if !ok {
-			return
-		}
-		channelID, ok := parseChannelID(data["channelId"])
-		if !ok {
-			return
-		}
-
-		c.Hub.BroadcastToChannelExcept(channelID, EventChatMessage, map[string]any{
-			"channelId":   channelID,
-			"senderId":    c.UserID,
-			"senderName":  c.Username,
-			"data":        sanitizedData,
-		}, c.ID)
+		// Chat persistence and publication are owned by the REST endpoint. The
+		// legacy client-to-server event is intentionally rejected so it cannot
+		// create a second non-persistent broadcast path.
+		reject(errcode.ErrBadRequest.WithMessage("聊天消息请使用 REST API"))
 
 	case EventWebRTCSignal:
-		// 统一的WebRTC信令处理
-		// 期望格式: { type: "offer|answer|ice-candidate", targetId?: number, payload: any }
+		// WebRTC signals are only relayed between users sharing an authorized
+		// channel. The optional mediaType is copied to both the envelope and the
+		// nested signal for clients using either protocol shape.
 		data, ok := event.Data.(map[string]any)
 		if !ok {
+			reject(errcode.ErrInvalidParam)
+			return
+		}
+		signalType, ok := data["type"].(string)
+		if !ok || (signalType != "offer" && signalType != "answer" && signalType != "ice-candidate") {
+			reject(errcode.ErrInvalidParam.WithMessage("无效的信令类型"))
+			return
+		}
+		targetID, ok := parseChannelID(data["targetId"])
+		if !ok || targetID == c.UserID {
+			reject(errcode.ErrInvalidParam.WithMessage("目标用户无效"))
+			return
+		}
+		payload, exists := data["payload"]
+		if !exists || payload == nil {
+			reject(errcode.ErrInvalidParam.WithMessage("信令负载不能为空"))
 			return
 		}
 
-		signalType, _ := data["type"].(string)
-		targetID, _ := data["targetId"].(float64) // JSON数字默认解析为float64
+		mediaType, hasMediaType := "", false
+		if rawMediaType, exists := data["mediaType"]; exists {
+			var ok bool
+			mediaType, ok = rawMediaType.(string)
+			if !ok {
+				reject(errcode.ErrInvalidParam.WithMessage("无效的媒体类型"))
+				return
+			}
+			hasMediaType = true
+			if mediaType != "voice" && mediaType != "screen" {
+				reject(errcode.ErrInvalidParam.WithMessage("无效的媒体类型"))
+				return
+			}
+		}
 
-		// 构建符合前端期望的格式
+		channelID, ok := c.Hub.SharedChannelWithUserID(c, targetID)
+		if !ok {
+			reject(errcode.ErrForbidden.WithMessage("目标用户不在同一频道"))
+			return
+		}
+		channel, ok := validateChannel(channelID, model.PermViewChannel)
+		if !ok {
+			return
+		}
+		if channel.Type != model.ChannelTypeVoice {
+			reject(errcode.ErrBadRequest.WithMessage("信令频道必须是语音频道"))
+			return
+		}
+		// Legacy signals omitted mediaType and historically represented voice.
+		// Authorize both peers for the media capability, not just channel view.
+		peerPermission := model.PermConnectVoice
+		if mediaType == "screen" {
+			peerPermission = model.PermScreenShare
+		}
+		if _, ok = validateChannel(channelID, peerPermission); !ok {
+			return
+		}
+
+		nestedSignal := map[string]any{
+			"type":     signalType,
+			"targetId": targetID,
+			"payload":  payload,
+		}
+		if hasMediaType {
+			nestedSignal["mediaType"] = mediaType
+		}
 		signalData := map[string]any{
 			"fromUserId":   c.UserID,
 			"fromUsername": c.Username,
-			"signal": map[string]any{
-				"type":     signalType,
-				"targetId": uint64(targetID),
-				"payload":  data["payload"],
-			},
+			"signal":       nestedSignal,
+		}
+		if hasMediaType {
+			signalData["mediaType"] = mediaType
+		}
+		// Re-check the recipient against the current membership/permission state;
+		// a stale subscription must not keep receiving signals after access is revoked.
+		if c.channelSvc == nil {
+			reject(errcode.ErrInternalServer.WithMessage("频道服务不可用"))
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_, targetErr := c.channelSvc.ValidateAccess(ctx, channelID, targetID, peerPermission)
+		cancel()
+		if targetErr != nil {
+			reject(errcode.ErrForbidden.WithMessage("目标用户无权访问该频道"))
+			return
 		}
 
-		// 如果指定了目标用户，全局发给该用户（不绑频道）
-		if targetID > 0 {
-			c.Hub.SendToUser(uint64(targetID), EventWebRTCSignal, signalData)
-		}
-		// targetId <= 0 时跳过（前端始终应指定 targetId）
+		c.Hub.SendToUserInChannel(channelID, targetID, EventWebRTCSignal, signalData)
 
 	case EventVoiceJoin:
-		// 加入语音频道
-		// data: { channelId: number }
+		// 加入语音频道需要语音频道类型和连接语音权限。
 		data, ok := event.Data.(map[string]any)
 		if !ok {
+			reject(errcode.ErrInvalidParam)
 			return
 		}
 		channelID, ok := parseChannelID(data["channelId"])
 		if !ok {
+			reject(errcode.ErrInvalidParam)
+			return
+		}
+		channel, ok := validateChannel(channelID, model.PermConnectVoice)
+		if !ok {
+			return
+		}
+		if channel.Type != model.ChannelTypeVoice {
+			reject(errcode.ErrBadRequest.WithMessage("该频道不是语音频道"))
 			return
 		}
 
-		// 广播 voice_user_joined 到该频道（排除自己）
+		// A voice event is meaningful only after the connection has subscribed
+		// to the channel. Subscription and voice permission are separate checks.
+		if !c.IsSubscribed(channelID) {
+			reject(errcode.ErrForbidden.WithMessage("未订阅该频道"))
+			return
+		}
+
+		// 广播 voice_user_joined 到该频道（排除自己）。 Keep the
+		// participant under `user`, matching the current frontend contract.
+		user := map[string]any{
+			"id":       c.UserID,
+			"userId":   c.UserID,
+			"username": c.Username,
+		}
 		c.Hub.BroadcastToChannelExcept(channelID, EventVoiceUserJoined, map[string]any{
 			"channelId": channelID,
-			"userId":    c.UserID,
-			"username":  c.Username,
+			"user":      user,
 		}, c.ID)
 
 	case EventVoiceLeave:
-		// 离开语音频道
-		// data: { channelId: number }
+		// 离开语音频道需要验证频道访问权限，并且必须是当前订阅者。
 		data, ok := event.Data.(map[string]any)
 		if !ok {
+			reject(errcode.ErrInvalidParam)
 			return
 		}
 		channelID, ok := parseChannelID(data["channelId"])
 		if !ok {
+			reject(errcode.ErrInvalidParam)
+			return
+		}
+		channel, ok := validateChannel(channelID, model.PermConnectVoice)
+		if !ok {
+			return
+		}
+		if channel.Type != model.ChannelTypeVoice {
+			reject(errcode.ErrBadRequest.WithMessage("该频道不是语音频道"))
+			return
+		}
+		if !c.IsSubscribed(channelID) {
+			reject(errcode.ErrBadRequest.WithMessage("未订阅该频道"))
 			return
 		}
 
@@ -318,17 +496,30 @@ func (c *Client) handleEvent(event Event) {
 		}, c.ID)
 
 	case EventTyping:
-		// 输入状态
+		// 输入状态仅允许发送到已授权且已订阅的频道。
 		// data: { channelId: number, isTyping: boolean }
 		data, ok := event.Data.(map[string]any)
 		if !ok {
+			reject(errcode.ErrInvalidParam)
 			return
 		}
 		channelID, ok := parseChannelID(data["channelId"])
 		if !ok {
+			reject(errcode.ErrInvalidParam)
 			return
 		}
-		isTyping, _ := data["isTyping"].(bool)
+		if _, ok = validateChannel(channelID, model.PermViewChannel); !ok {
+			return
+		}
+		if !c.IsSubscribed(channelID) {
+			reject(errcode.ErrForbidden.WithMessage("未订阅该频道"))
+			return
+		}
+		isTyping, ok := data["isTyping"].(bool)
+		if !ok {
+			reject(errcode.ErrInvalidParam)
+			return
+		}
 
 		// 广播到频道（排除发送者）
 		c.Hub.BroadcastToChannelExcept(channelID, EventTyping, map[string]any{
@@ -339,14 +530,31 @@ func (c *Client) handleEvent(event Event) {
 		}, c.ID)
 
 	case EventScreenShareStart:
-		// 用户开始屏幕共享
+		// 用户开始屏幕共享。屏幕共享使用语音频道的订阅通道。
 		// data: { channelId: number }
 		data, ok := event.Data.(map[string]any)
 		if !ok {
+			reject(errcode.ErrInvalidParam)
 			return
 		}
 		channelID, ok := parseChannelID(data["channelId"])
 		if !ok {
+			reject(errcode.ErrInvalidParam)
+			return
+		}
+		channel, ok := validateChannel(channelID, model.PermViewChannel)
+		if !ok {
+			return
+		}
+		if channel.Type != model.ChannelTypeVoice {
+			reject(errcode.ErrBadRequest.WithMessage("该频道不是语音频道"))
+			return
+		}
+		if _, ok = validateChannel(channelID, model.PermScreenShare); !ok {
+			return
+		}
+		if !c.IsSubscribed(channelID) {
+			reject(errcode.ErrForbidden.WithMessage("未订阅该频道"))
 			return
 		}
 
@@ -358,14 +566,31 @@ func (c *Client) handleEvent(event Event) {
 		}, c.ID)
 
 	case EventScreenShareStop:
-		// 用户停止屏幕共享
+		// 用户停止屏幕共享。校验与开始共享相同，避免绕过频道权限。
 		// data: { channelId: number }
 		data, ok := event.Data.(map[string]any)
 		if !ok {
+			reject(errcode.ErrInvalidParam)
 			return
 		}
 		channelID, ok := parseChannelID(data["channelId"])
 		if !ok {
+			reject(errcode.ErrInvalidParam)
+			return
+		}
+		channel, ok := validateChannel(channelID, model.PermViewChannel)
+		if !ok {
+			return
+		}
+		if channel.Type != model.ChannelTypeVoice {
+			reject(errcode.ErrBadRequest.WithMessage("该频道不是语音频道"))
+			return
+		}
+		if _, ok = validateChannel(channelID, model.PermScreenShare); !ok {
+			return
+		}
+		if !c.IsSubscribed(channelID) {
+			reject(errcode.ErrForbidden.WithMessage("未订阅该频道"))
 			return
 		}
 
@@ -380,6 +605,14 @@ func (c *Client) handleEvent(event Event) {
 		c.Hub.SendToUser(c.UserID, EventPong, map[string]any{
 			"timestamp": time.Now().Unix(),
 		})
+
+	case EventFriendRequest:
+		// 客户端确认收到好友请求通知，无需额外处理
+		// 可用于未来扩展：标记通知已送达
+
+	case EventFriendRequestResult:
+		// 客户端确认收到请求结果通知
+		// 可用于未来扩展：标记通知已送达
 	}
 }
 
@@ -389,45 +622,35 @@ func generateClientID() string {
 }
 
 // parseChannelID 从 any 值解析频道ID
-// JSON数字默认解析为 float64，需要安全转换
+// JSON数字默认解析为 float64，需要拒绝负数、非有限数和溢出值。
 func parseChannelID(v any) (uint64, bool) {
 	switch val := v.(type) {
 	case float64:
+		if val <= 0 || math.IsNaN(val) || math.IsInf(val, 0) || val != math.Trunc(val) || val >= math.Pow(2, 64) {
+			return 0, false
+		}
 		return uint64(val), true
 	case int:
+		if val <= 0 {
+			return 0, false
+		}
 		return uint64(val), true
 	case int64:
+		if val <= 0 {
+			return 0, false
+		}
 		return uint64(val), true
 	case uint64:
+		if val == 0 {
+			return 0, false
+		}
 		return val, true
+	case uint:
+		if val == 0 {
+			return 0, false
+		}
+		return uint64(val), true
 	default:
 		return 0, false
-	}
-}
-
-// sanitizeEventData 对事件数据进行XSS过滤
-// 递归处理map中的字符串字段，确保所有用户输入的内容都被HTML转义
-func sanitizeEventData(data any) any {
-	switch v := data.(type) {
-	case string:
-		// 对字符串直接进行HTML转义
-		return util.TrimAndEscape(v)
-	case map[string]any:
-		// 对map递归处理每个值
-		result := make(map[string]any)
-		for key, value := range v {
-			result[key] = sanitizeEventData(value)
-		}
-		return result
-	case []any:
-		// 对数组递归处理每个元素
-		result := make([]any, len(v))
-		for i, item := range v {
-			result[i] = sanitizeEventData(item)
-		}
-		return result
-	default:
-		// 其他类型（数字、布尔等）无需过滤
-		return data
 	}
 }

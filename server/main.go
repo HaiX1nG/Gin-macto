@@ -78,6 +78,7 @@ func main() {
 	reactionRepo := repository.NewReactionRepository(db)
 	voiceRepo := repository.NewVoiceRepository(db)
 	playlistRepo := repository.NewPlaylistRepository(db)
+	notificationRepo := repository.NewNotificationRepository(db)
 
 	// 初始化事务管理器
 	txManager := repository.NewTransactionManager(db)
@@ -92,10 +93,13 @@ func main() {
 	messageService := service.NewMessageService(msgRepo, reactionRepo, channelRepo, userRepo, serverService)
 	voiceService := service.NewVoiceService(voiceRepo, channelRepo, userRepo, serverService)
 	playlistService := service.NewPlaylistService(playlistRepo, channelRepo, serverService)
+	notificationService := service.NewNotificationService(notificationRepo)
 
 	// 初始化处理器
 	authHandler := handler.NewAuthHandler(userService)
-	friendHandler := handler.NewFriendHandler(friendService)
+	// 好友处理器使用含 WebSocket Hub 的构造函数，支持好友相关 WS 推送
+	// friendHandler 将在 Hub 初始化后重新赋值
+	var friendHandler *handler.FriendHandler
 	uploadHandler := handler.NewUploadHandler(uploadService)
 	serverHandler := handler.NewServerHandler(serverService)
 	channelHandler := handler.NewChannelHandler(channelService)
@@ -103,11 +107,25 @@ func main() {
 	messageHandler := handler.NewMessageHandler(messageService)
 	voiceHandler := handler.NewVoiceHandler(voiceService)
 	playlistHandler := handler.NewPlaylistHandler(playlistService)
+	notificationHandler := handler.NewNotificationHandler(notificationService)
 
-	// 初始化WebSocket Hub
-	hub := ws.NewHub(userService, cfg.WebSocket.HeartbeatTimeout)
+	// 初始化WebSocket Hub（含安全配置）
+	wsCfg := cfg.WebSocket
+	rateLimiter := middleware.NewWSRateLimiter(middleware.WSRateLimiterConfig{
+		RateLimitPerSecond: wsCfg.RateLimitPerSecond,
+		BurstSize:          wsCfg.RateLimitPerSecond * 2,
+		CleanupInterval:    30 * time.Second,
+		ClientExpiration:   60 * time.Second,
+	})
+	hub := ws.NewHub(userService, wsCfg.HeartbeatTimeout, wsCfg.MaxConnections, rateLimiter)
 	go hub.Run()
 	wsHandler := ws.NewHandler(hub)
+	wsHandler.SetServices(channelService, serverService)
+	messageHandler.SetMessagePublisher(hub)
+
+	// 初始化好友处理器（含 WebSocket Hub 和好友仓储）
+	friendHandler = handler.NewFriendHandlerWithHub(friendService, hub, friendRepo)
+
 	logger.Info("WebSocket Hub初始化完成",
 		zap.Duration("heartbeat_timeout", cfg.WebSocket.HeartbeatTimeout))
 
@@ -121,6 +139,7 @@ func main() {
 		voiceHandler,
 		playlistHandler,
 		friendHandler,
+		notificationHandler,
 		uploadHandler,
 		wsHandler,
 	)

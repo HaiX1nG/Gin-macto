@@ -140,3 +140,22 @@ websocket:
   # 每个客户端的消息发送队列容量
   # 默认256条消息
   send_buffer_size: 256
+  # 最大并发连接数
+  # 服务器允许的最大 WebSocket 连接数
+  # 默认1000
+  max_connections: 1000
+  # 单条消息最大字节数
+  # 防止 DoS 攻击，限制单条消息大小
+  # 默认65536 (64KB)
+  max_message_size: 65536
+  # 每秒最大消息数（速率限制）
+  # 防止客户端发送过多消息导致服务器过载
+  # 默认30条/秒
+  rate_limit_per_second: 30
+  # 允许的 WebSocket Origin 白名单
+  # 防止跨站 WebSocket 劫持
+  # 开发环境包含 localhost，生产环境需要配置实际域名
+  allowed_origins:
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
+    - "app://."
